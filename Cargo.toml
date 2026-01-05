@@ -11,7 +11,7 @@ categories = ["multimedia::audio", "api-bindings"]
 [dependencies]
 auxide = "0.2"
 auxide-dsp = "0.1"
-auxide-io = "0.1"
+auxide-io = "0.1.1"
 midir = "0.9"
 crossbeam-channel = "0.5"
 ctrlc = "3.4"
