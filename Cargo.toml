@@ -1,0 +1,29 @@
+[package]
+name = "auxide-midi"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+description = "MIDI input and polyphonic synthesizer integration for Auxide DSP graphs"
+keywords = ["midi", "synthesizer", "polyphonic", "real-time", "dsp"]
+categories = ["multimedia::audio", "api-bindings"]
+
+[dependencies]
+auxide = "0.2"
+auxide-dsp = "0.1"
+auxide-io = "0.1"
+midir = "0.9"
+crossbeam-channel = "0.5"
+ctrlc = "3.4"
+anyhow = "1.0"
+
+[dev-dependencies]
+
+[[example]]
+name = "list_devices"
+
+[[example]]
+name = "note_echo"
+
+[[example]]
+name = "poly_synth"
