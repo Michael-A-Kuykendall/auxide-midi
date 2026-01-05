@@ -60,6 +60,8 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "auxide"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fab1911c696c0478ed72d31f3d5b4d81af7bf5d6f623037a75f02673aaa474fb"
 dependencies = [
  "hound",
  "lazy_static",
@@ -68,6 +70,8 @@ dependencies = [
 [[package]]
 name = "auxide-dsp"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd176d13c5c7af07831cf69ba5924e57b05bd3d9890df693ba04d67385aea0d3"
 dependencies = [
  "auxide",
  "num-complex",
@@ -76,7 +80,9 @@ dependencies = [
 
 [[package]]
 name = "auxide-io"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bc4223710178f4b18674c44f0dedd1a7b737bf3fd70e857a171b8a0a651f59f"
 dependencies = [
  "anyhow",
  "auxide",
