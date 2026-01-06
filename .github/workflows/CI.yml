@@ -27,6 +27,8 @@ jobs:
       run: cargo fmt --all -- --check
     - name: Run clippy
       run: cargo clippy -- -D warnings
+      env:
+        PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig
     - name: Build
       run: cargo build --verbose
     - name: Run tests
