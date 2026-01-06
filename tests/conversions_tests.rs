@@ -1,6 +1,6 @@
 //! Tests for MIDI conversions
 
-use auxide_midi::{note_to_freq, velocity_to_gain, pitch_bend_to_ratio};
+use auxide_midi::{note_to_freq, pitch_bend_to_ratio, velocity_to_gain};
 use proptest::prelude::*;
 
 #[test]
@@ -24,7 +24,7 @@ fn note_frequency_semitone_ratio() {
     let csharp4 = note_to_freq(61);
 
     let ratio = csharp4 / c4;
-    assert!((ratio - 2.0_f32.powf(1.0/12.0)).abs() < 0.001);
+    assert!((ratio - 2.0_f32.powf(1.0 / 12.0)).abs() < 0.001);
 }
 
 #[test]

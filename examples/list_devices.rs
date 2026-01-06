@@ -26,7 +26,10 @@ fn main() -> anyhow::Result<()> {
 
     println!();
     println!("Use device index with other examples:");
-    println!("cargo run --example poly_synth -- {}", if devices.len() > 0 { 0 } else { 0 });
+    println!(
+        "cargo run --example poly_synth -- {}",
+        if devices.len() > 0 { 0 } else { 0 }
+    );
 
     Ok(())
 }

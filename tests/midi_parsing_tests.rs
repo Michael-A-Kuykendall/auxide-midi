@@ -1,6 +1,6 @@
 //! Tests for MIDI message parsing
 
-use auxide_midi::{MidiInputHandler, MidiEvent};
+use auxide_midi::{MidiEvent, MidiInputHandler};
 
 #[test]
 fn midi_bytes_to_note_on() {

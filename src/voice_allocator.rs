@@ -5,14 +5,12 @@ pub const MAX_VOICES: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VoiceId(pub usize);
 
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct VoiceSlot {
     pub active: bool,
     pub note: u8,
     pub age: u32,
 }
-
 
 #[derive(Debug)]
 pub struct VoiceAllocator {
@@ -68,7 +66,9 @@ impl VoiceAllocator {
 
     /// Get all active voices
     pub fn active_voices(&self) -> impl Iterator<Item = (VoiceId, u8)> + '_ {
-        self.voices.iter().enumerate()
+        self.voices
+            .iter()
+            .enumerate()
             .filter(|(_, v)| v.active)
             .map(|(i, v)| (VoiceId(i), v.note))
     }

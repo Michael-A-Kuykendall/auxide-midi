@@ -7,15 +7,14 @@
 use auxide::graph::{Graph, NodeType, PortId, Rate};
 use auxide::plan::Plan;
 use auxide::rt::Runtime;
-use auxide_dsp::nodes::oscillators::SawOsc;
+use auxide_dsp::nodes::envelopes::AdsrEnvelope;
 use auxide_dsp::nodes::filters::SvfFilter;
 use auxide_dsp::nodes::filters::SvfMode;
-use auxide_dsp::nodes::envelopes::AdsrEnvelope;
+use auxide_dsp::nodes::oscillators::SawOsc;
 use auxide_io::stream_controller::StreamController;
 use auxide_midi::{
-    MidiInputHandler, MidiEvent, VoiceAllocator, VoiceId,
-    VoicePool, VoiceState, EnvStage, CCMap, ParamTarget, ParamSmoother,
-    note_to_freq, velocity_to_gain, pitch_bend_to_ratio
+    note_to_freq, pitch_bend_to_ratio, velocity_to_gain, CCMap, EnvStage, MidiEvent,
+    MidiInputHandler, ParamSmoother, ParamTarget, VoiceAllocator, VoiceId, VoicePool, VoiceState,
 };
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::io::{self, Write};
@@ -25,10 +24,21 @@ use std::sync::Arc;
 // Message from MIDI thread to audio thread
 #[derive(Debug, Clone)]
 enum SynthMessage {
-    NoteOn { voice: VoiceId, note: u8, velocity: u8 },
-    NoteOff { note: u8 },
-    ControlChange { target: ParamTarget, value: f32 },
-    PitchBend { ratio: f32 },
+    NoteOn {
+        voice: VoiceId,
+        note: u8,
+        velocity: u8,
+    },
+    NoteOff {
+        note: u8,
+    },
+    ControlChange {
+        target: ParamTarget,
+        value: f32,
+    },
+    PitchBend {
+        ratio: f32,
+    },
 }
 
 struct Synth {
@@ -78,103 +88,123 @@ impl Synth {
             let gain = graph.add_node(NodeType::Gain { gain: 0.0 });
 
             // Connect: Osc -> Filter -> ADSR -> Gain
-            graph.add_edge(auxide::graph::Edge {
-                from_node: osc,
-                from_port: PortId(0),
-                to_node: filter,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            }).unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: osc,
+                    from_port: PortId(0),
+                    to_node: filter,
+                    to_port: PortId(0),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
 
-            graph.add_edge(auxide::graph::Edge {
-                from_node: filter,
-                from_port: PortId(0),
-                to_node: adsr,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            }).unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: filter,
+                    from_port: PortId(0),
+                    to_node: adsr,
+                    to_port: PortId(0),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
 
-            graph.add_edge(auxide::graph::Edge {
-                from_node: adsr,
-                from_port: PortId(0),
-                to_node: gain,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            }).unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: adsr,
+                    from_port: PortId(0),
+                    to_node: gain,
+                    to_port: PortId(0),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
 
             voice_outputs.push(gain);
         }
 
         // Create mixers for voices (tree structure since Mix only takes 2 inputs)
         let mut mix_outputs = Vec::new();
-        
+
         // Mix voices in pairs: 0+1, 2+3, 4+5, 6+7
         for i in (0..8).step_by(2) {
             let mix = graph.add_node(NodeType::Mix);
-            graph.add_edge(auxide::graph::Edge {
-                from_node: voice_outputs[i],
-                from_port: PortId(0),
-                to_node: mix,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            }).unwrap();
-            graph.add_edge(auxide::graph::Edge {
-                from_node: voice_outputs[i + 1],
-                from_port: PortId(0),
-                to_node: mix,
-                to_port: PortId(1),
-                rate: Rate::Audio,
-            }).unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: voice_outputs[i],
+                    from_port: PortId(0),
+                    to_node: mix,
+                    to_port: PortId(0),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: voice_outputs[i + 1],
+                    from_port: PortId(0),
+                    to_node: mix,
+                    to_port: PortId(1),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
             mix_outputs.push(mix);
         }
-        
+
         // Mix the pair results: (0+1)+(2+3), (4+5)+(6+7)
         let mut final_mixes = Vec::new();
         for i in (0..4).step_by(2) {
             let mix = graph.add_node(NodeType::Mix);
-            graph.add_edge(auxide::graph::Edge {
-                from_node: mix_outputs[i],
-                from_port: PortId(0),
-                to_node: mix,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            }).unwrap();
-            graph.add_edge(auxide::graph::Edge {
-                from_node: mix_outputs[i + 1],
-                from_port: PortId(0),
-                to_node: mix,
-                to_port: PortId(1),
-                rate: Rate::Audio,
-            }).unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: mix_outputs[i],
+                    from_port: PortId(0),
+                    to_node: mix,
+                    to_port: PortId(0),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
+            graph
+                .add_edge(auxide::graph::Edge {
+                    from_node: mix_outputs[i + 1],
+                    from_port: PortId(0),
+                    to_node: mix,
+                    to_port: PortId(1),
+                    rate: Rate::Audio,
+                })
+                .unwrap();
             final_mixes.push(mix);
         }
-        
+
         // Final mix: mix the two remaining signals
         let final_mix = graph.add_node(NodeType::Mix);
-        graph.add_edge(auxide::graph::Edge {
-            from_node: final_mixes[0],
-            from_port: PortId(0),
-            to_node: final_mix,
-            to_port: PortId(0),
-            rate: Rate::Audio,
-        }).unwrap();
-        graph.add_edge(auxide::graph::Edge {
-            from_node: final_mixes[1],
-            from_port: PortId(0),
-            to_node: final_mix,
-            to_port: PortId(1),
-            rate: Rate::Audio,
-        }).unwrap();
+        graph
+            .add_edge(auxide::graph::Edge {
+                from_node: final_mixes[0],
+                from_port: PortId(0),
+                to_node: final_mix,
+                to_port: PortId(0),
+                rate: Rate::Audio,
+            })
+            .unwrap();
+        graph
+            .add_edge(auxide::graph::Edge {
+                from_node: final_mixes[1],
+                from_port: PortId(0),
+                to_node: final_mix,
+                to_port: PortId(1),
+                rate: Rate::Audio,
+            })
+            .unwrap();
 
         // Create output sink
         let sink = graph.add_node(NodeType::OutputSink);
-        graph.add_edge(auxide::graph::Edge {
-            from_node: final_mix,
-            from_port: PortId(0),
-            to_node: sink,
-            to_port: PortId(0),
-            rate: Rate::Audio,
-        }).unwrap();
+        graph
+            .add_edge(auxide::graph::Edge {
+                from_node: final_mix,
+                from_port: PortId(0),
+                to_node: sink,
+                to_port: PortId(0),
+                rate: Rate::Audio,
+            })
+            .unwrap();
 
         let plan = Plan::compile(&graph, 64).unwrap();
         (graph, plan)
@@ -213,7 +243,11 @@ impl Synth {
     fn process_messages(&mut self) {
         while let Ok(message) = self.message_receiver.try_recv() {
             match message {
-                SynthMessage::NoteOn { voice, note, velocity } => {
+                SynthMessage::NoteOn {
+                    voice,
+                    note,
+                    velocity,
+                } => {
                     let voice_state = self.voice_pool.get_voice_mut(voice.0);
                     voice_state.trigger(note, velocity);
 
@@ -237,7 +271,8 @@ impl Synth {
                 SynthMessage::ControlChange { target, value } => {
                     match target {
                         ParamTarget::FilterCutoff => {
-                            self.filter_cutoff_smoother.set_target(value * 5000.0 + 100.0);
+                            self.filter_cutoff_smoother
+                                .set_target(value * 5000.0 + 100.0);
                         }
                         _ => {} // Other parameters not implemented in this demo
                     }
@@ -257,16 +292,19 @@ fn main() -> anyhow::Result<()> {
 
     // Build the synth graph once
     println!("Building 8-voice synthesizer graph...");
-    
+
     // First, determine the best sample rate for audio output
     let target_sample_rate = 44100.0;
-    let actual_sample_rate = StreamController::get_best_sample_rate(target_sample_rate)
-        .unwrap_or(target_sample_rate);
-    
+    let actual_sample_rate =
+        StreamController::get_best_sample_rate(target_sample_rate).unwrap_or(target_sample_rate);
+
     if (actual_sample_rate - target_sample_rate).abs() > 100.0 {
-        println!("Using sample rate: {}Hz (requested {}Hz)", actual_sample_rate, target_sample_rate);
+        println!(
+            "Using sample rate: {}Hz (requested {}Hz)",
+            actual_sample_rate, target_sample_rate
+        );
     }
-    
+
     let (_graph, plan) = Synth::build_graph();
     let runtime = Runtime::new(plan, &_graph, actual_sample_rate);
     println!("Graph compiled successfully");
@@ -284,8 +322,8 @@ fn main() -> anyhow::Result<()> {
     // Auto-select MicroFreak or prompt user
     let mut selected_index = None;
     for (i, device) in devices.iter().enumerate() {
-        if device.to_lowercase().contains("microfreak") ||
-           device.to_lowercase().contains("arturia") {
+        if device.to_lowercase().contains("microfreak") || device.to_lowercase().contains("arturia")
+        {
             selected_index = Some(i);
             break;
         }

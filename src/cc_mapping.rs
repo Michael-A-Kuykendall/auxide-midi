@@ -19,7 +19,7 @@ impl CCMap {
         let mut mappings = [(0, ParamTarget::Unused); 16];
 
         // Default mappings
-        mappings[0] = (1, ParamTarget::FilterCutoff);   // Mod wheel -> cutoff
+        mappings[0] = (1, ParamTarget::FilterCutoff); // Mod wheel -> cutoff
         mappings[1] = (74, ParamTarget::FilterResonance); // Filter Q -> resonance
 
         Self { mappings }

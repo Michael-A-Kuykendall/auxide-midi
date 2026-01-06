@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MidiEvent {
-    NoteOn(u8, u8),      // note, velocity
-    NoteOff(u8, u8),     // note, velocity
+    NoteOn(u8, u8),        // note, velocity
+    NoteOff(u8, u8),       // note, velocity
     ControlChange(u8, u8), // cc_num, value
-    PitchBend(i16),      // bend value
+    PitchBend(i16),        // bend value
 }
 
 pub struct MidiInputHandler {

@@ -18,8 +18,8 @@ fn main() -> anyhow::Result<()> {
     // Auto-select MicroFreak or Arturia devices
     let mut selected_index = None;
     for (i, device) in devices.iter().enumerate() {
-        if device.to_lowercase().contains("microfreak") ||
-           device.to_lowercase().contains("arturia") {
+        if device.to_lowercase().contains("microfreak") || device.to_lowercase().contains("arturia")
+        {
             selected_index = Some(i);
             break;
         }
@@ -80,7 +80,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn note_to_name(note: u8) -> String {
-    let note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let note_names = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
     let octave = (note / 12) as i32 - 1;
     let note_in_octave = (note % 12) as usize;
     format!("{}{}", note_names[note_in_octave], octave)

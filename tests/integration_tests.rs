@@ -1,11 +1,11 @@
 //! Integration tests for auxide-midi
 
-use auxide_midi::{MidiInputHandler, MidiEvent, VoiceAllocator, CCMap, ParamTarget};
-use auxide_dsp::oscillators::SawOsc;
-use auxide_dsp::envelopes::AdsrEnvelope;
 use auxide::graph::{Graph, NodeType};
 use auxide::plan::Plan;
 use auxide::rt::Runtime;
+use auxide_dsp::envelopes::AdsrEnvelope;
+use auxide_dsp::oscillators::SawOsc;
+use auxide_midi::{CCMap, MidiEvent, MidiInputHandler, ParamTarget, VoiceAllocator};
 use proptest::prelude::*;
 
 #[test]
@@ -121,7 +121,8 @@ fn polyphonic_voice_management() {
     assert_eq!(voice_allocator.active_voice_count(), 3);
 
     // Verify active voices
-    let active_notes: Vec<_> = voice_allocator.active_voices()
+    let active_notes: Vec<_> = voice_allocator
+        .active_voices()
         .map(|(_, note)| note)
         .collect();
     assert_eq!(active_notes.len(), 3);

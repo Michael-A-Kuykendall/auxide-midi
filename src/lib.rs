@@ -48,16 +48,16 @@
 
 #![forbid(unsafe_code)]
 
-pub mod conversions;
-pub mod voice_allocator;
-pub mod midi_input;
 pub mod cc_mapping;
+pub mod conversions;
+pub mod midi_input;
 pub mod smoother;
+pub mod voice_allocator;
 pub mod voice_state;
 
-pub use conversions::*;
-pub use voice_allocator::*;
-pub use midi_input::*;
 pub use cc_mapping::*;
+pub use conversions::*;
+pub use midi_input::*;
 pub use smoother::*;
+pub use voice_allocator::*;
 pub use voice_state::*;
