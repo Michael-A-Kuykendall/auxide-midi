@@ -1,6 +1,6 @@
 # auxide-midi
 
-<img src="https://raw.githubusercontent.com/Michael-A-Kuykendall/auxide-midi/main/assets/auxide-midi-logo.png" alt="auxide-midi logo" width="200"/>
+<img src="https://raw.githubusercontent.com/Michael-A-Kuykendall/auxide-midi/main/assets/auxide-midi-logo.png" alt="auxide-midi logo" width="400"/>
 
 [![Crates.io](https://img.shields.io/crates/v/auxide-midi.svg)](https://crates.io/crates/auxide-midi)
 [![Documentation](https://docs.rs/auxide-midi/badge.svg)](https://docs.rs/auxide-midi)
