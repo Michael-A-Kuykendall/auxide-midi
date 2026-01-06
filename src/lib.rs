@@ -13,33 +13,36 @@
 //! ```rust
 //! use auxide_midi::{MidiInputHandler, VoiceAllocator, MidiEvent};
 //!
-//! // List available MIDI devices
-//! let devices = MidiInputHandler::list_devices();
+//! fn example() -> Result<(), Box<dyn std::error::Error>> {
+//!     // List available MIDI devices
+//!     let devices = MidiInputHandler::list_devices()?;
 //!
-//! // Create voice allocator
-//! let mut voice_allocator = VoiceAllocator::new();
+//!     // Create voice allocator
+//!     let mut voice_allocator = VoiceAllocator::new();
 //!
-//! // Create MIDI input handler
-//! let mut midi_handler = MidiInputHandler::new();
+//!     // Create MIDI input handler
+//!     let mut midi_handler = MidiInputHandler::new();
 //!
-//! // Connect to first device if available
-//! if !devices.is_empty() {
-//!     midi_handler.connect_device(0).unwrap();
+//!     // Connect to first device if available
+//!     if !devices.is_empty() {
+//!         midi_handler.connect_device(0)?;
 //!
-//!     // Process MIDI events
-//!     while let Some(event) = midi_handler.try_recv() {
-//!         match event {
-//!             MidiEvent::NoteOn(note, vel) => {
-//!                 if let Some(voice_id) = voice_allocator.allocate_voice(note) {
-//!                     // Trigger voice
+//!         // Process MIDI events
+//!         while let Some(event) = midi_handler.try_recv() {
+//!             match event {
+//!                 MidiEvent::NoteOn(note, vel) => {
+//!                     if let Some(voice_id) = voice_allocator.allocate_voice(note) {
+//!                         // Trigger voice
+//!                     }
 //!                 }
+//!                 MidiEvent::NoteOff(note, _) => {
+//!                     voice_allocator.release_voice(note);
+//!                 }
+//!                 _ => {}
 //!             }
-//!             MidiEvent::NoteOff(note, _) => {
-//!                 voice_allocator.release_voice(note);
-//!             }
-//!             _ => {}
 //!         }
 //!     }
+//!     Ok(())
 //! }
 //! ```
 

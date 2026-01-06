@@ -1,6 +1,7 @@
 //! Tests for voice allocator
 
 use auxide_midi::{VoiceAllocator, VoiceId};
+use proptest::prelude::*;
 
 #[test]
 fn allocate_single_voice() {
@@ -94,4 +95,48 @@ fn release_nonexistent_voice() {
     // Release a note that wasn't allocated - should not crash
     allocator.release_voice(70);
     assert_eq!(allocator.active_voice_count(), 1);
+}
+
+proptest! {
+    #[test]
+    fn voice_allocator_no_panic_random_notes(notes in prop::collection::vec(0u8..128, 1..20)) {
+        let mut allocator = VoiceAllocator::new();
+        let mut allocations = std::collections::HashMap::new();
+
+        for &note in &notes {
+            if let Some(voice_id) = allocator.allocate_voice(note) {
+                *allocations.entry(note).or_insert(0) += 1;
+                // Voice ID should be valid
+                prop_assert!(voice_id.0 < 8);
+            }
+        }
+
+        // Active count should not exceed MAX_VOICES
+        prop_assert!(allocator.active_voice_count() <= 8);
+
+        // Release all allocated notes (once for each allocation)
+        for (note, count) in allocations {
+            for _ in 0..count {
+                allocator.release_voice(note);
+            }
+        }
+        prop_assert_eq!(allocator.active_voice_count(), 0);
+    }
+
+    #[test]
+    fn voice_allocator_age_based_stealing(notes in prop::collection::vec(0u8..128, 9..20)) {
+        let mut allocator = VoiceAllocator::new();
+
+        // Allocate 8 voices
+        for &note in &notes[..8] {
+            allocator.allocate_voice(note).unwrap();
+        }
+        prop_assert_eq!(allocator.active_voice_count(), 8);
+
+        // Allocate 9th - should steal oldest
+        let stolen_voice = allocator.allocate_voice(notes[8]).unwrap();
+        prop_assert_eq!(allocator.active_voice_count(), 8);
+        // Should have stolen voice 0 (oldest)
+        prop_assert_eq!(stolen_voice.0, 0);
+    }
 }

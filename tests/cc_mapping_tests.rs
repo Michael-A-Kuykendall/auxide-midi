@@ -1,6 +1,7 @@
 //! Tests for CC mapping
 
 use auxide_midi::{CCMap, ParamTarget};
+use proptest::prelude::*;
 
 #[test]
 fn default_cc1_maps_cutoff() {
@@ -108,4 +109,63 @@ fn cc_values_clamped_to_valid_range() {
 
     assert_eq!(result_low, Some((ParamTarget::FilterCutoff, 0.0)));
     assert_eq!(result_high, Some((ParamTarget::FilterCutoff, 1.0)));
+}
+
+proptest! {
+    #[test]
+    fn cc_map_no_panic(cc_num in 0u8..128, value in 0u8..128) {
+        let map = CCMap::new();
+        let result = map.map_cc(cc_num, value);
+
+        // Result should be either None or Some with valid normalized value
+        if let Some((target, normalized)) = result {
+            // Target should be a valid enum variant
+            match target {
+                ParamTarget::FilterCutoff
+                | ParamTarget::FilterResonance
+                | ParamTarget::AttackTime
+                | ParamTarget::ReleaseTime
+                | ParamTarget::Unused => {} // Valid
+            }
+            // Normalized value should be in [0, 1]
+            prop_assert!(normalized >= 0.0);
+            prop_assert!(normalized <= 1.0);
+            prop_assert!(normalized.is_finite());
+        }
+    }
+
+    #[test]
+    fn cc_map_value_normalization(cc_num in 0u8..128, value in 0u8..128) {
+        let mut map = CCMap::new();
+        map.set_mapping(cc_num, ParamTarget::FilterCutoff);
+
+        let result = map.map_cc(cc_num, value);
+        prop_assert!(result.is_some());
+
+        let (_, normalized) = result.unwrap();
+        let expected = value as f32 / 127.0;
+        prop_assert!((normalized - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_mapping_no_panic(cc_num in 0u8..128, target_int in 0u8..5) {
+        let mut map = CCMap::new();
+        let target = match target_int {
+            0 => ParamTarget::FilterCutoff,
+            1 => ParamTarget::FilterResonance,
+            2 => ParamTarget::AttackTime,
+            3 => ParamTarget::ReleaseTime,
+            _ => ParamTarget::Unused,
+        };
+
+        map.set_mapping(cc_num, target);
+
+        // Should be able to map the CC after setting
+        let result = map.map_cc(cc_num, 64);
+        if target != ParamTarget::Unused {
+            prop_assert!(result.is_some());
+            let (mapped_target, _) = result.unwrap();
+            prop_assert_eq!(mapped_target, target);
+        }
+    }
 }

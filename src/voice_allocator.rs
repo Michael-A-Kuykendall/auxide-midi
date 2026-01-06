@@ -6,21 +6,13 @@ pub const MAX_VOICES: usize = 8;
 pub struct VoiceId(pub usize);
 
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub struct VoiceSlot {
     pub active: bool,
     pub note: u8,
     pub age: u32,
 }
 
-impl Default for VoiceSlot {
-    fn default() -> Self {
-        Self {
-            active: false,
-            note: 0,
-            age: 0,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct VoiceAllocator {

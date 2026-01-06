@@ -1,4 +1,8 @@
 //! Polyphonic MIDI synthesizer demo
+//!
+//! ⚠️ LIMITATION: This demo plays all notes at 440Hz due to auxide graph immutability.
+//! Voice allocation and MIDI handling work correctly, but dynamic pitch requires
+//! graph rebuilding (see issue #X for auxide kernel parameter updates).
 
 use auxide::graph::{Graph, NodeType, PortId, Rate};
 use auxide::plan::Plan;
@@ -162,39 +166,10 @@ impl Synth {
             rate: Rate::Audio,
         }).unwrap();
 
-        // Add a test tone oscillator for debugging (440Hz sine wave)
-        let test_osc = graph.add_node(NodeType::SineOsc { freq: 440.0 });
-        let test_gain = graph.add_node(NodeType::Gain { gain: 0.1 }); // Quiet test tone
-        
-        graph.add_edge(auxide::graph::Edge {
-            from_node: test_osc,
-            from_port: PortId(0),
-            to_node: test_gain,
-            to_port: PortId(0),
-            rate: Rate::Audio,
-        }).unwrap();
-        
-        // Mix test tone with voice outputs
-        let test_mix = graph.add_node(NodeType::Mix);
-        graph.add_edge(auxide::graph::Edge {
-            from_node: test_gain,
-            from_port: PortId(0),
-            to_node: test_mix,
-            to_port: PortId(0),
-            rate: Rate::Audio,
-        }).unwrap();
-        graph.add_edge(auxide::graph::Edge {
-            from_node: final_mix,
-            from_port: PortId(0),
-            to_node: test_mix,
-            to_port: PortId(1),
-            rate: Rate::Audio,
-        }).unwrap();
-
         // Create output sink
         let sink = graph.add_node(NodeType::OutputSink);
         graph.add_edge(auxide::graph::Edge {
-            from_node: test_mix,
+            from_node: final_mix,
             from_port: PortId(0),
             to_node: sink,
             to_port: PortId(0),
@@ -254,6 +229,7 @@ impl Synth {
                         let voice_state = self.voice_pool.get_voice_mut(i);
                         if voice_state.active && voice_state.note == note {
                             voice_state.release();
+                            self.voice_allocator.release_voice(note);
                             break;
                         }
                     }
@@ -297,7 +273,7 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     // Setup MIDI
-    let devices = MidiInputHandler::list_devices();
+    let devices = MidiInputHandler::list_devices()?;
 
     if devices.is_empty() {
         println!("No MIDI input devices found.");

@@ -1,6 +1,12 @@
 //! Integration tests for auxide-midi
 
 use auxide_midi::{MidiInputHandler, MidiEvent, VoiceAllocator, CCMap, ParamTarget};
+use auxide_dsp::oscillators::SawOsc;
+use auxide_dsp::envelopes::AdsrEnvelope;
+use auxide::graph::{Graph, NodeType};
+use auxide::plan::Plan;
+use auxide::rt::Runtime;
+use proptest::prelude::*;
 
 #[test]
 fn midi_to_voice_allocation_integration() {
@@ -140,6 +146,92 @@ fn cc_parameter_range_validation() {
             assert!((normalized - (cc_value as f32 / 127.0)).abs() < 0.001);
         } else {
             panic!("Expected mapping for CC 1");
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn cross_crate_dsp_midi_integration_no_panic(
+        notes in prop::collection::vec(0u8..128, 1..10),
+        velocities in prop::collection::vec(1u8..128, 1..10), // Avoid 0 velocity
+        cc_values in prop::collection::vec(0u8..128, 0..5)
+    ) {
+        // Create a simple synth graph: SineOsc -> AdsrEnvelope -> OutputSink
+        let mut graph = Graph::new();
+
+        // Add nodes
+        let osc_node = graph.add_node(NodeType::External {
+            def: std::sync::Arc::new(SawOsc::new(440.0))
+        });
+        let env_node = graph.add_node(NodeType::External {
+            def: std::sync::Arc::new(AdsrEnvelope {
+                attack_ms: 10.0,
+                decay_ms: 100.0,
+                sustain_level: 0.8,
+                release_ms: 200.0,
+                curve: 1.0,
+            })
+        });
+        let output_node = graph.add_node(NodeType::OutputSink);
+
+        // Connect: osc -> env -> output
+        graph.add_edge(auxide::graph::Edge {
+            from_node: osc_node,
+            from_port: auxide::graph::PortId(0),
+            to_node: env_node,
+            to_port: auxide::graph::PortId(0),
+            rate: auxide::graph::Rate::Audio,
+        }).unwrap();
+
+        graph.add_edge(auxide::graph::Edge {
+            from_node: env_node,
+            from_port: auxide::graph::PortId(0),
+            to_node: output_node,
+            to_port: auxide::graph::PortId(0),
+            rate: auxide::graph::Rate::Audio,
+        }).unwrap();
+
+        // Compile the graph
+        let plan = Plan::compile(&graph, 64).unwrap();
+        let mut runtime = Runtime::new(plan, &graph, 44100.0);
+
+        // Simulate MIDI input processing
+        let mut voice_allocator = VoiceAllocator::new();
+        let mut output_buffer = vec![0.0; 64];
+
+        // Process some notes
+        let num_notes = notes.len().min(velocities.len());
+        for i in 0..num_notes {
+            let note = notes[i];
+            let velocity = velocities[i];
+
+            // Allocate voice for note
+            if let Some(voice_id) = voice_allocator.allocate_voice(note) {
+                // Note: In a real synth, we'd update the DSP nodes with voice parameters
+                // For this test, we just ensure the pipeline runs without panicking
+
+                // Process some audio
+                runtime.process_block(&mut output_buffer).unwrap();
+
+                // Release the voice
+                voice_allocator.release_voice(note);
+            }
+        }
+
+        // Process CC changes
+        let cc_map = CCMap::new();
+        for &cc_value in &cc_values {
+            let _mapping = cc_map.map_cc(1, cc_value); // CC 1 -> FilterCutoff
+            // In a real synth, this would update filter parameters
+        }
+
+        // Final audio processing
+        runtime.process_block(&mut output_buffer).unwrap();
+
+        // Verify output buffer is finite (no NaN/inf)
+        for &sample in &output_buffer {
+            prop_assert!(sample.is_finite());
         }
     }
 }

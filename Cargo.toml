@@ -9,16 +9,20 @@ keywords = ["midi", "synthesizer", "polyphonic", "real-time", "dsp"]
 categories = ["multimedia::audio", "api-bindings"]
 repository = "https://github.com/Michael-A-Kuykendall/auxide-midi"
 
+[features]
+default = []
+
 [dependencies]
-auxide = "0.2"
-auxide-dsp = "0.1"
-auxide-io = "0.1.1"
+auxide = { workspace = true }
+auxide-dsp = { workspace = true }
+auxide-io = { workspace = true }
 midir = "0.9"
 crossbeam-channel = "0.5"
 ctrlc = "3.4"
 anyhow = "1.0"
 
 [dev-dependencies]
+proptest = "1.0"
 
 [[example]]
 name = "list_devices"

@@ -32,13 +32,13 @@ impl MidiInputHandler {
         }
     }
 
-    pub fn list_devices() -> Vec<String> {
-        let midi_in = MidiInput::new("auxide-midi").unwrap();
-        midi_in
+    pub fn list_devices() -> Result<Vec<String>> {
+        let midi_in = MidiInput::new("auxide-midi")?;
+        Ok(midi_in
             .ports()
             .into_iter()
             .filter_map(|port| midi_in.port_name(&port).ok())
-            .collect()
+            .collect())
     }
 
     pub fn connect_device(&mut self, index: usize) -> Result<()> {
@@ -62,10 +62,8 @@ impl MidiInputHandler {
                 }
 
                 if let Some(event) = Self::parse_message(message) {
-                    // If queue is full, drop this message (simpler RT-safe approach)
-                    if !sender.is_full() {
-                        let _ = sender.try_send(event); // Non-blocking send
-                    }
+                    // Non-blocking send - drop message if queue is full
+                    let _ = sender.try_send(event);
                 }
             },
             (),
@@ -81,7 +79,7 @@ impl MidiInputHandler {
 
     pub fn disconnect(&mut self) {
         self.running.store(false, Ordering::Relaxed);
-        if let Some(connection) = self.connection.take() {
+        if let Some(_connection) = self.connection.take() {
             // Connection will be dropped, closing the MIDI port
         }
     }
@@ -92,7 +90,6 @@ impl MidiInputHandler {
         }
 
         let status = bytes[0];
-        let channel = status & 0x0F;
 
         match status & 0xF0 {
             0x90 => {

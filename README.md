@@ -1,72 +1,32 @@
 # auxide-midi
 
-<img src="assets/auxide-midi-logo.png" alt="auxide-midi logo" width="200"/>
+<img src="https://raw.githubusercontent.com/Michael-A-Kuykendall/auxide-midi/main/assets/auxide-midi-logo.png" alt="auxide-midi logo" width="200"/>
 
-MIDI input integration and polyphonic synthesizer for Auxide DSP graphs.
+[![Crates.io](https://img.shields.io/crates/v/auxide-midi.svg)](https://crates.io/crates/auxide-midi)
+[![Documentation](https://docs.rs/auxide-midi/badge.svg)](https://docs.rs/auxide-midi)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/Michael-A-Kuykendall/auxide-midi/workflows/CI/badge.svg)](https://github.com/Michael-A-Kuykendall/auxide-midi/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This crate provides real-time MIDI input handling, voice allocation for polyphonic synthesis, and seamless integration with auxide-dsp nodes.
+## 💝 Support Auxide's Growth
 
-## Features
+🚀 If Auxide helps you build amazing audio tools, consider [sponsoring](https://github.com/sponsors/Michael-A-Kuykendall) — 100% of support goes to keeping it free forever.
 
-- Real-time MIDI input with midir
-- 8-voice polyphonic voice allocation with stealing
-- MIDI CC parameter mapping
-- Parameter smoothing to prevent zipper noise
-- Lock-free communication between MIDI and audio threads
-- MicroFreak keyboard support
+• $5/month: Coffee tier ☕ - Eternal gratitude + sponsor badge
+• $25/month: Bug prioritizer 🐛 - Priority support + name in [SPONSORS.md](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/SPONSORS.md)
+• $100/month: Corporate backer 🏢 - Logo placement + monthly office hours
+• $500/month: Infrastructure partner 🚀 - Direct support + roadmap input
 
-## Connecting Your MIDI Keyboard
+**[🎯 Become a Sponsor](https://github.com/sponsors/Michael-A-Kuykendall)** | See our amazing [sponsors](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/SPONSORS.md) 🙏
 
-### Windows
-1. Plug in your MIDI keyboard (USB or traditional MIDI interface)
-2. Windows should automatically install drivers - no additional setup needed
-3. The device will appear as a MIDI input device
+MIDI input integration and voice allocation for Auxide DSP graphs.
 
-### Mac
-1. Connect your MIDI keyboard
-2. macOS should recognize it automatically
-3. Check Audio MIDI Setup if needed
+This crate provides real-time MIDI input handling and voice allocation for polyphonic synthesis. It integrates with auxide-dsp nodes but requires auxide kernel updates for full dynamic parameter control.
 
-### Linux
-1. Connect your MIDI keyboard
-2. May need to install ALSA tools: `sudo apt install alsa-utils`
-3. Check with `amidi -l` to see available devices
-
-## Running the Demo
-
-```bash
-# List available MIDI devices
-cargo run --example list_devices
-
-# Run the polyphonic synthesizer
-cargo run --example poly_synth
-```
-
-The synthesizer will automatically try to connect to devices with "MicroFreak" or "Arturia" in the name, otherwise it will prompt you to select a device.
-
-## Troubleshooting
-
-### No MIDI devices found
-- Check that your keyboard is properly connected and powered on
-- Try a different USB port
-- On Windows: Check Device Manager for MIDI devices
-- On Mac: Check Audio MIDI Setup
-- On Linux: Run `amidi -l` to list devices
-
-### Audio crackles or dropouts
-- Try reducing the buffer size in your audio settings
-- Close other audio applications
-- Check CPU usage
-
-### MIDI not responding
-- Verify the correct device is selected
-- Check MIDI channel settings on your keyboard
-- Try a different MIDI cable or USB port
-
-## Architecture
-
-The crate uses a lock-free architecture:
-- MIDI thread receives events and sends them via crossbeam-channel
-- Audio thread processes events without blocking
-- Voice allocation uses fixed-size arrays for RT-safety
-- Parameter updates use smoothing to prevent artifacts
+## Auxide Ecosystem
+| Crate | Description | Version |
+|-------|-------------|---------|
+| [auxide](https://github.com/Michael-A-Kuykendall/auxide) | Real-time-safe audio graph kernel | 0.2.0 |
+| **[auxide-dsp](https://github.com/Michael-A-Kuykendall/auxide-dsp)** | DSP nodes library | 0.1.0 |
+| [auxide-io](https://github.com/Michael-A-Kuykendall/auxide-io) | Audio I/O layer | 0.1.1 |
+| [auxide-midi](https://github.com/Michael-A-Kuykendall/auxide-midi) | MIDI integration | 0.1.0 |

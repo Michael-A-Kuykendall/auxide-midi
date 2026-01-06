@@ -8,7 +8,7 @@ fn main() -> anyhow::Result<()> {
     println!("==============");
     println!();
 
-    let devices = MidiInputHandler::list_devices();
+    let devices = MidiInputHandler::list_devices()?;
 
     if devices.is_empty() {
         println!("No MIDI input devices found.");
