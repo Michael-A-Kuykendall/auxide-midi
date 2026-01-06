@@ -53,21 +53,23 @@ impl MidiInputHandler {
         let running = self.running.clone();
         let sender = self.event_sender.clone();
 
-        let connection = midi_in.connect(
-            port,
-            "auxide-midi-input",
-            move |_, message, _| {
-                if !running.load(Ordering::Relaxed) {
-                    return;
-                }
+        let connection = midi_in
+            .connect(
+                port,
+                "auxide-midi-input",
+                move |_, message, _| {
+                    if !running.load(Ordering::Relaxed) {
+                        return;
+                    }
 
-                if let Some(event) = Self::parse_message(message) {
-                    // Non-blocking send - drop message if queue is full
-                    let _ = sender.try_send(event);
-                }
-            },
-            (),
-        ).map_err(|e| anyhow::anyhow!("MIDI connect error: {:?}", e))?;
+                    if let Some(event) = Self::parse_message(message) {
+                        // Non-blocking send - drop message if queue is full
+                        let _ = sender.try_send(event);
+                    }
+                },
+                (),
+            )
+            .map_err(|e| anyhow::anyhow!("MIDI connect error: {:?}", e))?;
 
         self.connection = Some(connection);
         Ok(())
