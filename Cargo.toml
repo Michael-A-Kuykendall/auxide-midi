@@ -13,9 +13,9 @@ repository = "https://github.com/Michael-A-Kuykendall/auxide-midi"
 default = []
 
 [dependencies]
-auxide = { workspace = true }
-auxide-dsp = { workspace = true }
-auxide-io = { workspace = true }
+auxide = "0.3"
+auxide-dsp = "0.2"
+auxide-io = "0.2"
 midir = "0.9"
 crossbeam-channel = "0.5"
 ctrlc = "3.4"
