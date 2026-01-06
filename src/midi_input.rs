@@ -67,7 +67,7 @@ impl MidiInputHandler {
                 }
             },
             (),
-        )?;
+        ).map_err(|e| anyhow::anyhow!("MIDI connect error: {:?}", e))?;
 
         self.connection = Some(connection);
         Ok(())
