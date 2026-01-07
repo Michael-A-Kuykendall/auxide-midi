@@ -44,7 +44,6 @@ fn velocity_gain_curve() {
 #[test]
 fn velocity_gain_is_convex() {
     // Gain should increase faster than linear
-    let v64 = velocity_to_gain(64);
     let v96 = velocity_to_gain(96);
 
     // 96/127 ≈ 0.756, (0.756)² ≈ 0.571

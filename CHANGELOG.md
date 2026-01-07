@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1] - 2026-01-07
+- **Voice allocator improvements**: u64 age counter prevents wraparound in extreme long-running scenarios
+- **Documentation**: Complete API documentation for all public types and methods
+- **Auxide ecosystem compatibility**: Updated for auxide 0.2.1, auxide-dsp 0.1.1, and auxide-io 0.1.2
+- **RT safety verification**: Confirmed zero allocations and locks in voice allocation and MIDI processing paths
+- **Testing**: All unit and integration tests passing
+
+**Requires**:  
+- [auxide >= 0.2.1](https://github.com/Michael-A-Kuykendall/auxide/releases/tag/v0.2.1)  
+- [auxide-dsp >= 0.1.1](https://github.com/Michael-A-Kuykendall/auxide-dsp/releases/tag/v0.1.1)  
+- [auxide-io >= 0.1.2](https://github.com/Michael-A-Kuykendall/auxide-io/releases/tag/v0.1.2)
+
 ## [0.2.0] - 2026-01-05
 - **Comprehensive MIDI integration and testing** - Expanded voice allocator tests with property-based testing
 - **Integration tests** - Added tests for MIDI parsing, CC mapping, and cross-crate functionality

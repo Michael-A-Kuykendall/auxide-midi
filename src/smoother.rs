@@ -1,5 +1,9 @@
-//! Parameter smoothing to prevent zipper noise
+//! Parameter smoothing to prevent zipper noise in real-time parameter changes.
+//!
+//! Uses exponential smoothing (one-pole low-pass filter) to interpolate
+//! between current and target values over time.
 
+/// Exponential parameter smoother to prevent zipper noise.
 #[derive(Debug, Clone)]
 pub struct ParamSmoother {
     current: f32,
@@ -8,12 +12,16 @@ pub struct ParamSmoother {
 }
 
 impl ParamSmoother {
-    /// Create a new smoother with default 10ms time constant at 44.1kHz
+    /// Creates a new smoother with a default 10ms time constant at 44.1kHz.
     pub fn new() -> Self {
         Self::with_time_constant(0.01, 44100.0) // 10ms at 44.1kHz
     }
 
-    /// Create a smoother with specific time constant and sample rate
+    /// Creates a smoother with a specific time constant and sample rate.
+    ///
+    /// # Arguments
+    /// * `time_constant_seconds` - Time for output to reach ~63% of target change (RC time constant)
+    /// * `sample_rate` - Sample rate in Hz
     pub fn with_time_constant(time_constant_seconds: f32, sample_rate: f32) -> Self {
         let coeff = (-1.0 / (time_constant_seconds * sample_rate)).exp();
         Self {
@@ -23,23 +31,23 @@ impl ParamSmoother {
         }
     }
 
-    /// Set the target value (instantaneous)
+    /// Sets the target value (takes effect on next `next_sample` call).
     pub fn set_target(&mut self, new_target: f32) {
         self.target = new_target;
     }
 
-    /// Get the next smoothed sample
+    /// Gets the next smoothed sample, advancing internal state toward the target.
     pub fn next_sample(&mut self) -> f32 {
         self.current = self.current * self.coeff + self.target * (1.0 - self.coeff);
         self.current
     }
 
-    /// Get current value without advancing
+    /// Gets the current value without advancing the state.
     pub fn current_value(&self) -> f32 {
         self.current
     }
 
-    /// Reset to a specific value
+    /// Resets both current and target to the same value (no smoothing).
     pub fn reset(&mut self, value: f32) {
         self.current = value;
         self.target = value;

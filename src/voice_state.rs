@@ -1,6 +1,9 @@
-//! Voice state for polyphonic synthesis
+//! Voice state tracking for polyphonic synthesis.
+//!
+//! Manages individual voice ADSR envelopes, note triggers, and releases.
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Envelope stage within the ADSR lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvStage {
     Idle,
     Attack,
@@ -9,6 +12,7 @@ pub enum EnvStage {
     Release,
 }
 
+/// Tracks the state of a single voice including ADSR envelope and note information.
 #[derive(Debug, Clone, Copy)]
 pub struct VoiceState {
     pub osc_phase: f32,
@@ -22,6 +26,7 @@ pub struct VoiceState {
 }
 
 impl VoiceState {
+    /// Creates a new voice in idle state.
     pub fn new() -> Self {
         Self {
             osc_phase: 0.0,
@@ -35,6 +40,7 @@ impl VoiceState {
         }
     }
 
+    /// Resets all voice parameters to idle state.
     pub fn reset(&mut self) {
         self.osc_phase = 0.0;
         self.filter_z1 = 0.0;
@@ -44,6 +50,7 @@ impl VoiceState {
         self.active = false;
     }
 
+    /// Triggers the voice with note and velocity information.
     pub fn trigger(&mut self, note: u8, velocity: u8) {
         self.note = note;
         self.velocity = velocity;
@@ -52,6 +59,7 @@ impl VoiceState {
         self.active = true;
     }
 
+    /// Initiates the release phase for the voice.
     pub fn release(&mut self) {
         if self.active {
             self.env_stage = EnvStage::Release;
@@ -65,33 +73,40 @@ impl Default for VoiceState {
     }
 }
 
+/// Pool of voices for polyphonic voice management.
 pub struct VoicePool {
     voices: [VoiceState; 8],
 }
 
 impl VoicePool {
+    /// Creates a new pool with 8 voices.
     pub fn new() -> Self {
         Self {
             voices: [VoiceState::new(); 8],
         }
     }
 
+    /// Gets an immutable reference to a voice by index.
     pub fn get_voice(&self, voice_id: usize) -> &VoiceState {
         &self.voices[voice_id]
     }
 
+    /// Gets a mutable reference to a voice by index.
     pub fn get_voice_mut(&mut self, voice_id: usize) -> &mut VoiceState {
         &mut self.voices[voice_id]
     }
 
+    /// Returns an immutable slice of all voices.
     pub fn voices(&self) -> &[VoiceState; 8] {
         &self.voices
     }
 
+    /// Returns a mutable slice of all voices.
     pub fn voices_mut(&mut self) -> &mut [VoiceState; 8] {
         &mut self.voices
     }
 
+    /// Returns the count of active (not idle) voices.
     pub fn active_voice_count(&self) -> usize {
         self.voices.iter().filter(|v| v.active).count()
     }

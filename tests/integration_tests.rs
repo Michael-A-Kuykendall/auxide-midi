@@ -16,7 +16,7 @@ fn midi_to_voice_allocation_integration() {
     // Simulate Note On event
     let note_on = MidiEvent::NoteOn(60, 100);
     match note_on {
-        MidiEvent::NoteOn(note, vel) => {
+        MidiEvent::NoteOn(note, _vel) => {
             let voice_id = voice_allocator.allocate_voice(note).unwrap();
             assert_eq!(voice_id.0, 0);
             assert_eq!(voice_allocator.active_voice_count(), 1);
@@ -117,7 +117,7 @@ fn polyphonic_voice_management() {
     assert_eq!(voice_allocator.active_voice_count(), 2);
 
     // Play another note - should reuse released voice
-    let new_voice = voice_allocator.allocate_voice(72).unwrap();
+    let _new_voice = voice_allocator.allocate_voice(72).unwrap();
     assert_eq!(voice_allocator.active_voice_count(), 3);
 
     // Verify active voices
@@ -143,7 +143,7 @@ fn cc_parameter_range_validation() {
         let mapping = cc_map.map_cc(1, cc_value);
         if let Some((target, normalized)) = mapping {
             assert_eq!(target, ParamTarget::FilterCutoff);
-            assert!(normalized >= 0.0 && normalized <= 1.0);
+            assert!((0.0..=1.0).contains(&normalized));
             assert!((normalized - (cc_value as f32 / 127.0)).abs() < 0.001);
         } else {
             panic!("Expected mapping for CC 1");
@@ -205,10 +205,10 @@ proptest! {
         let num_notes = notes.len().min(velocities.len());
         for i in 0..num_notes {
             let note = notes[i];
-            let velocity = velocities[i];
+            let _velocity = velocities[i];
 
             // Allocate voice for note
-            if let Some(voice_id) = voice_allocator.allocate_voice(note) {
+            if let Some(_voice_id) = voice_allocator.allocate_voice(note) {
                 // Note: In a real synth, we'd update the DSP nodes with voice parameters
                 // For this test, we just ensure the pipeline runs without panicking
 

@@ -1,4 +1,6 @@
-//! MIDI input handling with midir
+//! MIDI input handling with midir backend.
+//!
+//! Provides event-driven MIDI input with non-blocking access to incoming messages.
 
 use anyhow::Result;
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -6,6 +8,7 @@ use midir::{MidiInput, MidiInputConnection};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// MIDI events received from input devices.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MidiEvent {
     NoteOn(u8, u8),        // note, velocity
@@ -14,6 +17,7 @@ pub enum MidiEvent {
     PitchBend(i16),        // bend value
 }
 
+/// Manages MIDI input from devices with non-blocking event queuing.
 pub struct MidiInputHandler {
     connection: Option<MidiInputConnection<()>>,
     event_sender: Sender<MidiEvent>,
@@ -22,6 +26,7 @@ pub struct MidiInputHandler {
 }
 
 impl MidiInputHandler {
+    /// Creates a new MIDI input handler with a bounded event queue.
     pub fn new() -> Self {
         let (sender, receiver) = bounded(256); // Bounded queue to prevent unbounded growth
         Self {
@@ -32,6 +37,7 @@ impl MidiInputHandler {
         }
     }
 
+    /// Lists all available MIDI input devices.
     pub fn list_devices() -> Result<Vec<String>> {
         let midi_in = MidiInput::new("auxide-midi")?;
         Ok(midi_in
@@ -41,6 +47,7 @@ impl MidiInputHandler {
             .collect())
     }
 
+    /// Connects to a MIDI device by index from the device list.
     pub fn connect_device(&mut self, index: usize) -> Result<()> {
         let midi_in = MidiInput::new("auxide-midi")?;
         let ports = midi_in.ports();

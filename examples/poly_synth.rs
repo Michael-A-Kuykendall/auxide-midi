@@ -13,8 +13,8 @@ use auxide_dsp::nodes::filters::SvfMode;
 use auxide_dsp::nodes::oscillators::SawOsc;
 use auxide_io::stream_controller::StreamController;
 use auxide_midi::{
-    note_to_freq, pitch_bend_to_ratio, velocity_to_gain, CCMap, EnvStage, MidiEvent,
-    MidiInputHandler, ParamSmoother, ParamTarget, VoiceAllocator, VoiceId, VoicePool, VoiceState,
+    note_to_freq, pitch_bend_to_ratio, CCMap, MidiEvent, MidiInputHandler, ParamSmoother,
+    ParamTarget, VoiceAllocator, VoiceId, VoicePool,
 };
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::io::{self, Write};
@@ -71,7 +71,7 @@ impl Synth {
         // Create 8 voices, each with: SawOsc -> SvfFilter -> ADSR -> Gain
         let mut voice_outputs = Vec::new();
 
-        for voice_idx in 0..8 {
+        for _voice_idx in 0..8 {
             let osc = graph.add_external_node(SawOsc { freq: 440.0 });
             let filter = graph.add_external_node(SvfFilter {
                 cutoff: 1000.0,
@@ -252,7 +252,7 @@ impl Synth {
                     voice_state.trigger(note, velocity);
 
                     // Update oscillator frequency
-                    let freq = note_to_freq(note) as f32;
+                    let _freq = note_to_freq(note);
                     // Note: In this simplified example, we don't update oscillator frequency
                     // as auxide nodes are immutable. For dynamic frequency, you'd need
                     // to recreate the graph or use a different architecture.
@@ -269,12 +269,11 @@ impl Synth {
                     }
                 }
                 SynthMessage::ControlChange { target, value } => {
-                    match target {
-                        ParamTarget::FilterCutoff => {
-                            self.filter_cutoff_smoother
-                                .set_target(value * 5000.0 + 100.0);
-                        }
-                        _ => {} // Other parameters not implemented in this demo
+                    if target == ParamTarget::FilterCutoff {
+                        self.filter_cutoff_smoother
+                            .set_target(value * 5000.0 + 100.0);
+                    } else {
+                        // Other parameters not implemented in this demo
                     }
                 }
                 SynthMessage::PitchBend { ratio } => {

@@ -1,6 +1,6 @@
 //! Tests for voice allocator
 
-use auxide_midi::{VoiceAllocator, VoiceId};
+use auxide_midi::VoiceAllocator;
 use proptest::prelude::*;
 
 #[test]
@@ -26,7 +26,7 @@ fn allocate_multiple_voices() {
 #[test]
 fn release_voice() {
     let mut allocator = VoiceAllocator::new();
-    let voice_id = allocator.allocate_voice(60).unwrap();
+    allocator.allocate_voice(60).unwrap();
     assert_eq!(allocator.active_voice_count(), 1);
 
     allocator.release_voice(60);
