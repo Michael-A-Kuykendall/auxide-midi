@@ -1,8 +1,21 @@
 //! Polyphonic MIDI synthesizer demo
 //!
-//! ⚠️ LIMITATION: This demo plays all notes at 440Hz due to auxide graph immutability.
-//! Voice allocation and MIDI handling work correctly, but dynamic pitch requires
-//! graph rebuilding (see issue #X for auxide kernel parameter updates).
+//! This is a complete end-to-end demo showing:
+//! - MIDI input handling (auto-detects Arturia MicroFreak/UltraFreak)
+//! - 8-voice polyphonic voice allocation
+//! - Real-time audio output via CPAL
+//! - ADSR envelope control
+//! - Filter cutoff modulation via CC#74 (Brightness)
+//!
+//! ⚠️ CURRENT LIMITATION: All notes play at 440Hz (fixed oscillator)
+//! This is due to auxide graph being immutable after plan compilation.
+//! Future auxide updates will support dynamic parameter changes without rebuilding.
+//!
+//! Usage:
+//!   1. Connect MIDI keyboard (or Arturia device)
+//!   2. Run: cargo run --example poly_synth
+//!   3. Play notes on your keyboard
+//!   4. Press Ctrl+C to exit
 
 use auxide::graph::{Graph, NodeType, PortId, Rate};
 use auxide::plan::Plan;
@@ -318,12 +331,16 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Auto-select MicroFreak or prompt user
+    // Auto-select MicroFreak, UltraFreak, or other Arturia devices
     let mut selected_index = None;
     for (i, device) in devices.iter().enumerate() {
-        if device.to_lowercase().contains("microfreak") || device.to_lowercase().contains("arturia")
+        let lower = device.to_lowercase();
+        if lower.contains("microfreak") 
+            || lower.contains("ultrafreak") 
+            || lower.contains("arturia")
         {
             selected_index = Some(i);
+            println!("Auto-detected: {}", device);
             break;
         }
     }
@@ -352,8 +369,13 @@ fn main() -> anyhow::Result<()> {
     println!("Connecting to: {}", devices[device_index]);
 
     let mut midi_handler = MidiInputHandler::new();
-    midi_handler.connect_device(device_index)?;
-    println!("MIDI connected successfully");
+    match midi_handler.connect_device(device_index) {
+        Ok(_) => println!("✓ MIDI connected successfully"),
+        Err(e) => {
+            eprintln!("✗ Failed to connect to MIDI device: {}", e);
+            return Err(e);
+        }
+    }
     println!();
 
     // Create synth
@@ -361,7 +383,18 @@ fn main() -> anyhow::Result<()> {
 
     // Setup audio streaming
     println!("Starting audio stream...");
-    let stream_controller = StreamController::play(runtime)?;
+    let stream_controller = match StreamController::play(runtime) {
+        Ok(sc) => {
+            println!("✓ Audio stream started ({:.0}Hz, 64-sample block)", actual_sample_rate);
+            sc
+        }
+        Err(e) => {
+            eprintln!("✗ Failed to start audio stream: {}", e);
+            eprintln!("  Make sure no other application is using your audio device");
+            return Err(e);
+        }
+    };
+    println!();
 
     // Setup graceful shutdown
     let running = Arc::new(AtomicBool::new(true));
@@ -371,12 +404,17 @@ fn main() -> anyhow::Result<()> {
         r.store(false, Ordering::Relaxed);
     })?;
 
-    println!("Synthesizer running! Play notes on your MIDI keyboard.");
-    println!("Active voices: 0");
-    println!("Press Ctrl+C to exit");
+    println!("╔════════════════════════════════════════╗");
+    println!("║ Auxide MIDI Synthesizer Ready!         ║");
+    println!("╠════════════════════════════════════════╣");
+    println!("║ Play notes on your MIDI keyboard       ║");
+    println!("║ Use brightness (CC#74) to adjust tone  ║");
+    println!("║ Press Ctrl+C to exit                   ║");
+    println!("╚════════════════════════════════════════╝");
     println!();
 
     // Main loop
+    let mut last_voice_count = 0;
     while running.load(Ordering::Relaxed) {
         // Handle MIDI events
         while let Some(event) = midi_handler.try_recv() {
@@ -386,10 +424,12 @@ fn main() -> anyhow::Result<()> {
         // Process synth messages (simplified - in real implementation this would be RT-safe communication)
         synth.process_messages();
 
-        // Update display
+        // Update display only when voice count changes
         let active_voices = synth.voice_allocator.active_voice_count();
-        print!("\rActive voices: {} ", active_voices);
-        io::stdout().flush()?;
+        if active_voices != last_voice_count {
+            println!("Active voices: {}/8", active_voices);
+            last_voice_count = active_voices;
+        }
 
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
