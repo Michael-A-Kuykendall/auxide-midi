@@ -36,3 +36,6 @@ name = "poly_synth"
 
 [[example]]
 name = "rompler_demo"
+
+[[example]]
+name = "melody_demo"
