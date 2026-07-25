@@ -1,89 +1,83 @@
-//! Echo MIDI note events to console
+//! Echo MIDI input to the console and play it through the real `Synth` facade,
+//! rendering the result to `note_echo_demo.wav` (no audio device required
+//! for the render itself; a MIDI device is needed for input).
 
-use auxide_midi::MidiInputHandler;
-use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-fn main() -> anyhow::Result<()> {
-    println!("MIDI Note Echo");
-    println!("==============");
-    println!();
+use auxide_midi::{MidiEvent, MidiInputHandler, Synth};
 
-    let devices = MidiInputHandler::list_devices()?;
-
-    if devices.is_empty() {
-        println!("No MIDI input devices found.");
-        return Ok(());
-    }
-
-    // Auto-select MicroFreak or Arturia devices
-    let mut selected_index = None;
-    for (i, device) in devices.iter().enumerate() {
-        if device.to_lowercase().contains("microfreak") || device.to_lowercase().contains("arturia")
-        {
-            selected_index = Some(i);
-            break;
-        }
-    }
-
-    if selected_index.is_none() {
-        println!("Available devices:");
-        for (i, device) in devices.iter().enumerate() {
-            println!("{}: {}", i, device);
-        }
-        print!("Select device (0-{}): ", devices.len() - 1);
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        selected_index = input.trim().parse().ok();
-    }
-
-    let device_index = match selected_index {
-        Some(idx) if idx < devices.len() => idx,
-        _ => {
-            println!("Invalid device selection");
-            return Ok(());
-        }
-    };
-
-    println!("Connecting to: {}", devices[device_index]);
-
-    let mut midi_handler = MidiInputHandler::new();
-    midi_handler.connect_device(device_index)?;
-
-    println!("Listening for MIDI events... (Ctrl+C to exit)");
-    println!();
-
-    loop {
-        if let Some(event) = midi_handler.try_recv() {
-            match event {
-                auxide_midi::MidiEvent::NoteOn(note, vel) => {
-                    let note_name = note_to_name(note);
-                    println!("NoteOn: {} ({}) velocity {}", note_name, note, vel);
-                }
-                auxide_midi::MidiEvent::NoteOff(note, vel) => {
-                    let note_name = note_to_name(note);
-                    println!("NoteOff: {} ({}) velocity {}", note_name, note, vel);
-                }
-                auxide_midi::MidiEvent::ControlChange(cc, val) => {
-                    println!("CC {}: {}", cc, val);
-                }
-                auxide_midi::MidiEvent::PitchBend(bend) => {
-                    println!("PitchBend: {}", bend);
-                }
-            }
-        }
-
-        // Small sleep to prevent busy waiting
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+/// A 1-second 440 Hz sine, used as the ROMpler sample.
+fn make_sample(sr: f32) -> Arc<Vec<f32>> {
+    Arc::new(
+        (0..sr as usize)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin())
+            .collect(),
+    )
 }
 
-fn note_to_name(note: u8) -> String {
-    let note_names = [
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-    ];
-    let octave = (note / 12) as i32 - 1;
-    let note_in_octave = (note % 12) as usize;
-    format!("{}{}", note_names[note_in_octave], octave)
+fn render_to_wav(path: &str, sr: f32, rendered: &[f32]) -> anyhow::Result<()> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: sr as u32,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(path, spec)?;
+    for &s in rendered {
+        w.write_sample((s * 32767.0) as i16)?;
+    }
+    w.finalize()?;
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    let sr = 44100.0;
+    let mut synth = Synth::new(make_sample(sr), sr, 8, 69);
+    let mut block = vec![0.0f32; 64];
+    let mut rendered = Vec::new();
+
+    let devices = MidiInputHandler::list_devices()?;
+    if devices.is_empty() {
+        println!("No MIDI devices found; nothing to echo.");
+        return Ok(());
+    }
+    let idx = devices
+        .iter()
+        .position(|d| {
+            let l = d.to_lowercase();
+            l.contains("microfreak") || l.contains("ultrafreak") || l.contains("arturia")
+        })
+        .unwrap_or(0);
+    println!("Echoing MIDI from {} (Ctrl+C to stop)", devices[idx]);
+    let mut handler = MidiInputHandler::new();
+    handler.connect_device(idx)?;
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || r.store(false, Ordering::Relaxed))?;
+
+    while running.load(Ordering::Relaxed) {
+        if let Some(ev) = handler.try_recv() {
+            match ev {
+                MidiEvent::NoteOn(n, v) => {
+                    synth.note_on(n, v);
+                    println!("NoteOn {} vel {}", n, v);
+                }
+                MidiEvent::NoteOff(n, _) => {
+                    synth.note_off(n);
+                    println!("NoteOff {}", n);
+                }
+                MidiEvent::ControlChange(c, v) => println!("CC {}: {}", c, v),
+                MidiEvent::PitchBend(b) => println!("PitchBend {}", b),
+            }
+        }
+        synth.process_block(&mut block).expect("render block");
+        rendered.extend_from_slice(&block);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    render_to_wav("note_echo_demo.wav", sr, &rendered)?;
+    println!("Wrote note_echo_demo.wav ({} frames)", rendered.len());
+    Ok(())
 }

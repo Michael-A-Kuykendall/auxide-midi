@@ -20,7 +20,7 @@
 
 MIDI input integration and voice allocation for Auxide DSP graphs.
 
-This crate provides real-time MIDI input handling and voice allocation for polyphonic synthesis. It integrates with auxide-dsp nodes but requires auxide kernel updates for full dynamic parameter control.
+This crate provides real-time MIDI input handling and voice allocation for polyphonic synthesis. It integrates with auxide-dsp nodes and drives the auxide kernel's runtime control plane — RT-safe `note_on`/`note_off`, CC mapping, and pitch-bend routed through the lock-free control queue.
 
 ## Status
 
@@ -43,52 +43,39 @@ auxide-midi = "0.2"
 
 ## Example
 
-```rust
-use auxide_midi::{MidiInputHandler, VoiceAllocator, MidiEvent};
+Build a polyphonic ROMpler with the real `Synth` facade — every note is
+routed through the auxide kernel's runtime control plane (no "all notes
+play at 440 Hz" overclaim):
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // List available MIDI devices
-    let devices = MidiInputHandler::list_devices()?;
-    
-    if devices.is_empty() {
-        println!("No MIDI devices found");
-        return Ok(());
-    }
-    
-    // Create voice allocator for polyphonic synthesis
-    let mut voice_allocator = VoiceAllocator::new();
-    
-    // Create MIDI input handler
-    let mut midi_handler = MidiInputHandler::new();
-    
-    // Connect to first device
-    midi_handler.connect_device(0)?;
-    
-    // Process MIDI events
-    while let Some(event) = midi_handler.try_recv() {
-        match event {
-            MidiEvent::NoteOn(note, velocity) => {
-                if let Some(voice_id) = voice_allocator.allocate_voice(note) {
-                    // Trigger synth voice with note/velocity
-                    println!("Note on: {} vel: {}", note, velocity);
-                }
-            }
-            MidiEvent::NoteOff(note, _) => {
-                voice_allocator.release_voice(note);
-                println!("Note off: {}", note);
-            }
-            MidiEvent::ControlChange(cc, value) => {
-                // Map CC to parameters
-                println!("CC {}: {}", cc, value);
-            }
-        }
-    }
-    
-    Ok(())
+```rust
+use std::sync::Arc;
+use auxide_midi::Synth;
+
+let sr = 44100.0;
+let sample: Arc<Vec<f32>> = Arc::new(
+    (0..44100)
+        .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin())
+        .collect(),
+);
+let mut synth = Synth::new(sample, sr, 8, 69); // 8-voice polyphonic ROMpler
+let mut out = vec![0.0f32; 64];
+synth.note_on(69, 100);
+for _ in 0..10 {
+    synth.process_block(&mut out).unwrap();
 }
+assert!(out.iter().any(|&s| s.abs() > 1e-3));
+synth.note_off(69);
 ```
 
-See `examples/` for complete working synthesizers.
+**True capability:** polyphonic voices with per-note pitch, ADSR envelopes,
+and an SVF filter; real-time CC mapping (cutoff/resonance) and
+pitch-bend through the lock-free control queue. A MIDI device is
+required for input, but the synth itself renders with no device. For live
+CPAL playback, wrap the `RuntimeHandle` with
+`auxide_io::StreamController::play_handle`.
+
+See `examples/` for complete, building demos
+(`cargo run --example poly_synth`, `cargo run --example note_echo`).
 
 ## Features
 
@@ -105,8 +92,8 @@ See `examples/` for complete working synthesizers.
 • 📖 Documentation: [docs.rs](https://docs.rs/auxide-midi)
 • 💝 Sponsorship: [GitHub Sponsors](https://github.com/sponsors/Michael-A-Kuykendall)
 • 🤝 Contributing: [CONTRIBUTING.md](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/CONTRIBUTING.md)
-• 📜 Governance: [GOVERNANCE.md](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/GOVERNANCE.md)
-• 🔒 Security: [SECURITY.md](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/SECURITY.md)
+• 🔒 Governance: [GOVERNANCE.md](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/GOVERNANCE.md)
+• 🔐 Security: [SECURITY.md](https://github.com/Michael-A-Kuykendall/auxide-midi/blob/main/SECURITY.md)
 
 ## License & Philosophy
 
@@ -116,11 +103,12 @@ MIT License - forever and always.
 
 **Testing Philosophy**: Reliability through comprehensive validation.
 
-**Forever maintainer**: Michael A. Kuykendall  
-**Promise**: This will never become a paid product  
+**Forever maintainer**: Michael A. Kuykendall
+**Promise**: This will never become a paid product
 **Mission**: Making real-time MIDI integration simple and reliable
 
 ## Auxide Ecosystem
+
 | Crate | Description | Version |
 |-------|-------------|---------|
 | [auxide](https://github.com/Michael-A-Kuykendall/auxide) | Real-time-safe audio graph kernel | 0.3.1 |

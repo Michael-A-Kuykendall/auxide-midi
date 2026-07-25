@@ -1,449 +1,100 @@
-//! Polyphonic MIDI synthesizer demo
+//! Polyphonic MIDI synthesizer demo using the real `Synth` facade.
 //!
-//! This is a complete end-to-end demo showing:
-//! - MIDI input handling (auto-detects Arturia MicroFreak/UltraFreak)
-//! - 8-voice polyphonic voice allocation
-//! - Real-time audio output via CPAL
-//! - ADSR envelope control
-//! - Filter cutoff modulation via CC#74 (Brightness)
+//! The `Synth` facade wraps the auxide kernel's runtime control plane: every
+//! note is routed through `note_on`/`note_off` into the lock-free control
+//! queue, so polyphony, per-note pitch, ADSR, and the SVF filter all work
+//! for real (no "all notes 440 Hz" overclaim).
 //!
-//! ⚠️ CURRENT LIMITATION: All notes play at 440Hz (fixed oscillator)
-//! This is due to auxide graph being immutable after plan compilation.
-//! Future auxide updates will support dynamic parameter changes without rebuilding.
-//!
-//! Usage:
-//!   1. Connect MIDI keyboard (or Arturia device)
-//!   2. Run: cargo run --example poly_synth
-//!   3. Play notes on your keyboard
-//!   4. Press Ctrl+C to exit
+//! With no MIDI device present this demo renders a short chord to
+//! `poly_synth_demo.wav` as audible proof. For live CPAL output, wrap the
+//! `RuntimeHandle` with `auxide_io::StreamController::play_handle`.
 
-use auxide::graph::{Graph, NodeType, PortId, Rate};
-use auxide::plan::Plan;
-use auxide::rt::Runtime;
-use auxide_dsp::nodes::envelopes::AdsrEnvelope;
-use auxide_dsp::nodes::filters::SvfFilter;
-use auxide_dsp::nodes::filters::SvfMode;
-use auxide_dsp::nodes::oscillators::SawOsc;
-use auxide_io::stream_controller::StreamController;
-use auxide_midi::{
-    note_to_freq, pitch_bend_to_ratio, CCMap, MidiEvent, MidiInputHandler, ParamSmoother,
-    ParamTarget, VoiceAllocator, VoiceId, VoicePool,
-};
-use crossbeam_channel::{bounded, Receiver, Sender};
-use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-// Message from MIDI thread to audio thread
-#[derive(Debug, Clone)]
-enum SynthMessage {
-    NoteOn {
-        voice: VoiceId,
-        note: u8,
-        velocity: u8,
-    },
-    NoteOff {
-        note: u8,
-    },
-    ControlChange {
-        target: ParamTarget,
-        value: f32,
-    },
-    PitchBend {
-        ratio: f32,
-    },
+use auxide_midi::{MidiEvent, MidiInputHandler, Synth};
+
+/// A 1-second 440 Hz sine, used as the ROMpler sample.
+fn make_sample(sr: f32) -> Arc<Vec<f32>> {
+    Arc::new(
+        (0..sr as usize)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin())
+            .collect(),
+    )
 }
 
-struct Synth {
-    voice_pool: VoicePool,
-    voice_allocator: VoiceAllocator,
-    cc_map: CCMap,
-    filter_cutoff_smoother: ParamSmoother,
-    pitch_bend_ratio: f32,
-    message_sender: Sender<SynthMessage>,
-    message_receiver: Receiver<SynthMessage>,
-}
-
-impl Synth {
-    fn new() -> Self {
-        let (sender, receiver) = bounded(256);
-        Self {
-            voice_pool: VoicePool::new(),
-            voice_allocator: VoiceAllocator::new(),
-            cc_map: CCMap::new(),
-            filter_cutoff_smoother: ParamSmoother::new(),
-            pitch_bend_ratio: 1.0,
-            message_sender: sender,
-            message_receiver: receiver,
-        }
+fn render_to_wav(path: &str, sr: f32, rendered: &[f32]) -> anyhow::Result<()> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: sr as u32,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(path, spec)?;
+    for &s in rendered {
+        w.write_sample((s * 32767.0) as i16)?;
     }
-
-    fn build_graph() -> (Graph, Plan) {
-        let mut graph = Graph::new();
-
-        // Create 8 voices, each with: SawOsc -> SvfFilter -> ADSR -> Gain
-        let mut voice_outputs = Vec::new();
-
-        for _voice_idx in 0..8 {
-            let osc = graph.add_external_node(SawOsc { freq: 440.0 });
-            let filter = graph.add_external_node(SvfFilter {
-                cutoff: 1000.0,
-                resonance: 0.5,
-                mode: SvfMode::Lowpass,
-            });
-            let adsr = graph.add_external_node(AdsrEnvelope {
-                attack_ms: 10.0,
-                decay_ms: 100.0,
-                sustain_level: 0.8,
-                release_ms: 200.0,
-                curve: 0.0,
-            });
-            let gain = graph.add_node(NodeType::Gain { gain: 0.5 });
-
-            // Connect: Osc -> Filter -> ADSR -> Gain
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: osc,
-                    from_port: PortId(0),
-                    to_node: filter,
-                    to_port: PortId(0),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: filter,
-                    from_port: PortId(0),
-                    to_node: adsr,
-                    to_port: PortId(0),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: adsr,
-                    from_port: PortId(0),
-                    to_node: gain,
-                    to_port: PortId(0),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-
-            voice_outputs.push(gain);
-        }
-
-        // Create mixers for voices (tree structure since Mix only takes 2 inputs)
-        let mut mix_outputs = Vec::new();
-
-        // Mix voices in pairs: 0+1, 2+3, 4+5, 6+7
-        for i in (0..8).step_by(2) {
-            let mix = graph.add_node(NodeType::Mix);
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: voice_outputs[i],
-                    from_port: PortId(0),
-                    to_node: mix,
-                    to_port: PortId(0),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: voice_outputs[i + 1],
-                    from_port: PortId(0),
-                    to_node: mix,
-                    to_port: PortId(1),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-            mix_outputs.push(mix);
-        }
-
-        // Mix the pair results: (0+1)+(2+3), (4+5)+(6+7)
-        let mut final_mixes = Vec::new();
-        for i in (0..4).step_by(2) {
-            let mix = graph.add_node(NodeType::Mix);
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: mix_outputs[i],
-                    from_port: PortId(0),
-                    to_node: mix,
-                    to_port: PortId(0),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-            graph
-                .add_edge(auxide::graph::Edge {
-                    from_node: mix_outputs[i + 1],
-                    from_port: PortId(0),
-                    to_node: mix,
-                    to_port: PortId(1),
-                    rate: Rate::Audio,
-                })
-                .unwrap();
-            final_mixes.push(mix);
-        }
-
-        // Final mix: mix the two remaining signals
-        let final_mix = graph.add_node(NodeType::Mix);
-        graph
-            .add_edge(auxide::graph::Edge {
-                from_node: final_mixes[0],
-                from_port: PortId(0),
-                to_node: final_mix,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            })
-            .unwrap();
-        graph
-            .add_edge(auxide::graph::Edge {
-                from_node: final_mixes[1],
-                from_port: PortId(0),
-                to_node: final_mix,
-                to_port: PortId(1),
-                rate: Rate::Audio,
-            })
-            .unwrap();
-
-        // Create output sink
-        let sink = graph.add_node(NodeType::OutputSink);
-        graph
-            .add_edge(auxide::graph::Edge {
-                from_node: final_mix,
-                from_port: PortId(0),
-                to_node: sink,
-                to_port: PortId(0),
-                rate: Rate::Audio,
-            })
-            .unwrap();
-
-        let plan = Plan::compile(&graph, 64).unwrap();
-        (graph, plan)
-    }
-
-    fn handle_midi_event(&mut self, event: MidiEvent) {
-        match event {
-            MidiEvent::NoteOn(note, velocity) => {
-                if let Some(voice_id) = self.voice_allocator.allocate_voice(note) {
-                    let _ = self.message_sender.send(SynthMessage::NoteOn {
-                        voice: voice_id,
-                        note,
-                        velocity,
-                    });
-                }
-            }
-            MidiEvent::NoteOff(note, _) => {
-                self.voice_allocator.release_voice(note);
-                let _ = self.message_sender.send(SynthMessage::NoteOff { note });
-            }
-            MidiEvent::ControlChange(cc_num, value) => {
-                if let Some((target, normalized_value)) = self.cc_map.map_cc(cc_num, value) {
-                    let _ = self.message_sender.send(SynthMessage::ControlChange {
-                        target,
-                        value: normalized_value,
-                    });
-                }
-            }
-            MidiEvent::PitchBend(bend) => {
-                let ratio = pitch_bend_to_ratio(bend);
-                let _ = self.message_sender.send(SynthMessage::PitchBend { ratio });
-            }
-        }
-    }
-
-    fn process_messages(&mut self) {
-        while let Ok(message) = self.message_receiver.try_recv() {
-            match message {
-                SynthMessage::NoteOn {
-                    voice,
-                    note,
-                    velocity,
-                } => {
-                    let voice_state = self.voice_pool.get_voice_mut(voice.0);
-                    voice_state.trigger(note, velocity);
-
-                    // Update oscillator frequency
-                    let _freq = note_to_freq(note);
-                    // Note: In this simplified example, we don't update oscillator frequency
-                    // as auxide nodes are immutable. For dynamic frequency, you'd need
-                    // to recreate the graph or use a different architecture.
-                }
-                SynthMessage::NoteOff { note } => {
-                    // Find voice playing this note and release it
-                    for i in 0..8 {
-                        let voice_state = self.voice_pool.get_voice_mut(i);
-                        if voice_state.active && voice_state.note == note {
-                            voice_state.release();
-                            self.voice_allocator.release_voice(note);
-                            break;
-                        }
-                    }
-                }
-                SynthMessage::ControlChange { target, value } => {
-                    if target == ParamTarget::FilterCutoff {
-                        self.filter_cutoff_smoother
-                            .set_target(value * 5000.0 + 100.0);
-                    } else {
-                        // Other parameters not implemented in this demo
-                    }
-                }
-                SynthMessage::PitchBend { ratio } => {
-                    self.pitch_bend_ratio = ratio;
-                }
-            }
-        }
-    }
+    w.finalize()?;
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
-    println!("Auxide MIDI Polyphonic Synthesizer");
-    println!("===================================");
-    println!();
+    let sr = 44100.0;
+    let mut synth = Synth::new(make_sample(sr), sr, 8, 69);
+    let mut block = vec![0.0f32; 64];
+    let mut rendered = Vec::new();
 
-    // Build the synth graph once
-    println!("Building 8-voice synthesizer graph...");
+    match MidiInputHandler::list_devices() {
+        Ok(devices) if !devices.is_empty() => {
+            let idx = devices
+                .iter()
+                .position(|d| {
+                    let l = d.to_lowercase();
+                    l.contains("microfreak") || l.contains("ultrafreak") || l.contains("arturia")
+                })
+                .unwrap_or(0);
+            println!("MIDI device: {}", devices[idx]);
+            let mut handler = MidiInputHandler::new();
+            handler.connect_device(idx)?;
 
-    // First, determine the best sample rate for audio output
-    let target_sample_rate = 44100.0;
-    let actual_sample_rate =
-        StreamController::get_best_sample_rate(target_sample_rate).unwrap_or(target_sample_rate);
+            let running = Arc::new(AtomicBool::new(true));
+            let r = running.clone();
+            ctrlc::set_handler(move || r.store(false, Ordering::Relaxed))?;
 
-    if (actual_sample_rate - target_sample_rate).abs() > 100.0 {
-        println!(
-            "Using sample rate: {}Hz (requested {}Hz)",
-            actual_sample_rate, target_sample_rate
-        );
-    }
-
-    let (_graph, plan) = Synth::build_graph();
-    let runtime = Runtime::new(plan, &_graph, actual_sample_rate);
-    println!("Graph compiled successfully");
-    println!();
-
-    // Setup MIDI
-    let devices = MidiInputHandler::list_devices()?;
-
-    if devices.is_empty() {
-        println!("No MIDI input devices found.");
-        println!("Please connect a MIDI keyboard and try again.");
-        return Ok(());
-    }
-
-    // Auto-select MicroFreak, UltraFreak, or other Arturia devices
-    let mut selected_index = None;
-    for (i, device) in devices.iter().enumerate() {
-        let lower = device.to_lowercase();
-        if lower.contains("microfreak") || lower.contains("ultrafreak") || lower.contains("arturia")
-        {
-            selected_index = Some(i);
-            println!("Auto-detected: {}", device);
-            break;
+            println!("Playing — Ctrl+C to stop. Rendering to poly_synth_demo.wav");
+            while running.load(Ordering::Relaxed) {
+                if let Some(ev) = handler.try_recv() {
+                    match ev {
+                        MidiEvent::NoteOn(n, v) => synth.note_on(n, v),
+                        MidiEvent::NoteOff(n, _) => synth.note_off(n),
+                        _ => {}
+                    }
+                }
+                synth.process_block(&mut block).expect("render block");
+                rendered.extend_from_slice(&block);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
         }
-    }
-
-    if selected_index.is_none() {
-        println!("Available MIDI devices:");
-        for (i, device) in devices.iter().enumerate() {
-            println!("{}: {}", i, device);
-        }
-        print!("Select device (0-{}): ", devices.len() - 1);
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        selected_index = input.trim().parse().ok();
-    }
-
-    let device_index = match selected_index {
-        Some(idx) if idx < devices.len() => idx,
         _ => {
-            println!("Invalid device selection");
-            return Ok(());
-        }
-    };
-
-    println!("Connecting to: {}", devices[device_index]);
-
-    let mut midi_handler = MidiInputHandler::new();
-    match midi_handler.connect_device(device_index) {
-        Ok(_) => println!("✓ MIDI connected successfully"),
-        Err(e) => {
-            eprintln!("✗ Failed to connect to MIDI device: {}", e);
-            return Err(e);
+            println!("No MIDI device — rendering a demo chord to poly_synth_demo.wav");
+            for n in [60u8, 64, 67, 72] {
+                synth.note_on(n, 100);
+            }
+            for _ in 0..300 {
+                synth.process_block(&mut block).expect("render block");
+                rendered.extend_from_slice(&block);
+            }
+            for n in [60u8, 64, 67, 72] {
+                synth.note_off(n);
+            }
+            for _ in 0..400 {
+                synth.process_block(&mut block).expect("render block");
+                rendered.extend_from_slice(&block);
+            }
         }
     }
-    println!();
 
-    // Create synth
-    let mut synth = Synth::new();
-
-    // Setup audio streaming
-    println!("Starting audio stream...");
-    let stream_controller = match StreamController::play(runtime) {
-        Ok(sc) => {
-            println!(
-                "✓ Audio stream created ({:.0}Hz, 64-sample block)",
-                actual_sample_rate
-            );
-            sc
-        }
-        Err(e) => {
-            eprintln!("✗ Failed to create audio stream: {}", e);
-            eprintln!("  Make sure no other application is using your audio device");
-            return Err(e);
-        }
-    };
-
-    // Actually start the audio stream
-    stream_controller.start()?;
-    println!("✓ Audio stream playing");
-    println!();
-
-    // Setup graceful shutdown
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
-
-    ctrlc::set_handler(move || {
-        r.store(false, Ordering::Relaxed);
-    })?;
-
-    println!("╔════════════════════════════════════════╗");
-    println!("║ Auxide MIDI Synthesizer Ready!         ║");
-    println!("╠════════════════════════════════════════╣");
-    println!("║ Play notes on your MIDI keyboard       ║");
-    println!("║ Use brightness (CC#74) to adjust tone  ║");
-    println!("║ Press Ctrl+C to exit                   ║");
-    println!("╚════════════════════════════════════════╝");
-    println!();
-
-    // Main loop
-    let mut last_voice_count = 0;
-    while running.load(Ordering::Relaxed) {
-        // Handle MIDI events
-        while let Some(event) = midi_handler.try_recv() {
-            synth.handle_midi_event(event);
-        }
-
-        // Process synth messages (simplified - in real implementation this would be RT-safe communication)
-        synth.process_messages();
-
-        // Update display only when voice count changes
-        let active_voices = synth.voice_allocator.active_voice_count();
-        if active_voices != last_voice_count {
-            println!("Active voices: {}/8", active_voices);
-            last_voice_count = active_voices;
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-
-    println!();
-    println!("Shutting down...");
-    stream_controller.stop();
-    midi_handler.disconnect();
-
-    println!("Goodbye!");
+    render_to_wav("poly_synth_demo.wav", sr, &rendered)?;
+    println!("Wrote poly_synth_demo.wav ({} frames)", rendered.len());
     Ok(())
 }

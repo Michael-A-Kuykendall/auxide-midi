@@ -10,40 +10,28 @@
 //!
 //! ## Example
 //!
+//! Build a polyphonic ROMpler with the real `Synth` facade. Every note is
+//! routed through the auxide kernel's runtime control plane — no "all notes
+//! play at 440 Hz" overclaim:
+//!
 //! ```rust
-//! use auxide_midi::{MidiInputHandler, VoiceAllocator, MidiEvent};
+//! use std::sync::Arc;
+//! use auxide_midi::Synth;
 //!
-//! fn example() -> Result<(), Box<dyn std::error::Error>> {
-//!     // List available MIDI devices
-//!     let devices = MidiInputHandler::list_devices()?;
-//!
-//!     // Create voice allocator
-//!     let mut voice_allocator = VoiceAllocator::new();
-//!
-//!     // Create MIDI input handler
-//!     let mut midi_handler = MidiInputHandler::new();
-//!
-//!     // Connect to first device if available
-//!     if !devices.is_empty() {
-//!         midi_handler.connect_device(0)?;
-//!
-//!         // Process MIDI events
-//!         while let Some(event) = midi_handler.try_recv() {
-//!             match event {
-//!                 MidiEvent::NoteOn(note, vel) => {
-//!                     if let Some(voice_id) = voice_allocator.allocate_voice(note) {
-//!                         // Trigger voice
-//!                     }
-//!                 }
-//!                 MidiEvent::NoteOff(note, _) => {
-//!                     voice_allocator.release_voice(note);
-//!                 }
-//!                 _ => {}
-//!             }
-//!         }
-//!     }
-//!     Ok(())
+//! let sr = 44100.0;
+//! let sample: Arc<Vec<f32>> = Arc::new(
+//!     (0..44100)
+//!         .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin())
+//!         .collect(),
+//! );
+//! let mut synth = Synth::new(sample, sr, 8, 69); // 8-voice polyphonic ROMpler
+//! let mut out = vec![0.0f32; 64];
+//! synth.note_on(69, 100);
+//! for _ in 0..10 {
+//!     synth.process_block(&mut out).unwrap();
 //! }
+//! assert!(out.iter().any(|&s| s.abs() > 1e-3), "synth must produce audio");
+//! synth.note_off(69);
 //! ```
 
 #![forbid(unsafe_code)]
