@@ -108,7 +108,6 @@ MIT License - forever and always.
 **Mission**: Making real-time MIDI integration simple and reliable
 
 ## Auxide Ecosystem
-
 | Crate | Description | Version |
 |-------|-------------|---------|
 | [auxide](https://github.com/Michael-A-Kuykendall/auxide) | Real-time-safe audio graph kernel | 0.3.1 |
