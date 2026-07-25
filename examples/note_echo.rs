@@ -70,6 +70,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 MidiEvent::ControlChange(c, v) => println!("CC {}: {}", c, v),
                 MidiEvent::PitchBend(b) => println!("PitchBend {}", b),
+                _ => {}
             }
         }
         synth.process_block(&mut block).expect("render block");
