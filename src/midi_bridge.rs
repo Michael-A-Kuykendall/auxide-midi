@@ -202,6 +202,12 @@ impl MidiToAudioBridge {
                 MidiEvent::PitchBend(bend) => {
                     self.last_pitch_bend = bend as f32 / 8192.0;
                 }
+                // Transport / clock messages do not directly drive voices.
+                MidiEvent::Clock
+                | MidiEvent::Start
+                | MidiEvent::Continue
+                | MidiEvent::Stop
+                | MidiEvent::SongPosition(_) => {}
             }
         }
 
