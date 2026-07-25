@@ -1,6 +1,6 @@
 //! MIDI CC parameter mapping
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParamTarget {
     FilterCutoff,
     FilterResonance,

@@ -177,7 +177,7 @@ mod tests {
         // Verify that age uses u64, which doesn't wrap in practice.
         // Even at 1M allocations/sec, u64 takes ~292 billion years to wrap.
         let mut allocator = VoiceAllocator::new();
-        
+
         // Allocate and release many voices
         for _ in 0..1000 {
             for note in 60..68 {
@@ -186,10 +186,9 @@ mod tests {
                 allocator.release_voice(note);
             }
         }
-        
+
         // next_age should be very large (8000 allocations done)
         // With u64 and saturating_add, we get at least 8000
         assert!(allocator.next_age >= 8000);
     }
 }
-

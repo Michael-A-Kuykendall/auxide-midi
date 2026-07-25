@@ -98,7 +98,7 @@ impl Synth {
                 release_ms: 200.0,
                 curve: 0.0,
             });
-            let gain = graph.add_node(NodeType::Gain { gain: 0.0 });
+            let gain = graph.add_node(NodeType::Gain { gain: 0.5 });
 
             // Connect: Osc -> Filter -> ADSR -> Gain
             graph
@@ -335,9 +335,7 @@ fn main() -> anyhow::Result<()> {
     let mut selected_index = None;
     for (i, device) in devices.iter().enumerate() {
         let lower = device.to_lowercase();
-        if lower.contains("microfreak") 
-            || lower.contains("ultrafreak") 
-            || lower.contains("arturia")
+        if lower.contains("microfreak") || lower.contains("ultrafreak") || lower.contains("arturia")
         {
             selected_index = Some(i);
             println!("Auto-detected: {}", device);
@@ -385,15 +383,22 @@ fn main() -> anyhow::Result<()> {
     println!("Starting audio stream...");
     let stream_controller = match StreamController::play(runtime) {
         Ok(sc) => {
-            println!("✓ Audio stream started ({:.0}Hz, 64-sample block)", actual_sample_rate);
+            println!(
+                "✓ Audio stream created ({:.0}Hz, 64-sample block)",
+                actual_sample_rate
+            );
             sc
         }
         Err(e) => {
-            eprintln!("✗ Failed to start audio stream: {}", e);
+            eprintln!("✗ Failed to create audio stream: {}", e);
             eprintln!("  Make sure no other application is using your audio device");
             return Err(e);
         }
     };
+
+    // Actually start the audio stream
+    stream_controller.start()?;
+    println!("✓ Audio stream playing");
     println!();
 
     // Setup graceful shutdown
