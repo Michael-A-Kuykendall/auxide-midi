@@ -70,6 +70,7 @@ name = "auxide-dsp"
 version = "0.2.0"
 dependencies = [
  "auxide",
+ "hound",
  "num-complex",
  "realfft",
 ]
