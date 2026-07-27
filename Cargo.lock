@@ -82,6 +82,7 @@ dependencies = [
  "anyhow",
  "auxide",
  "cpal",
+ "hound",
 ]
 
 [[package]]
