@@ -18,6 +18,11 @@
 //! main loop so you can see whether a crackle coincides with an xrun or
 //! an overflow.
 //!
+//! Voice slot management: a slot is only re-usable after its ADSR release
+//! window has fully elapsed (250ms guard, matching the 200ms ADSR release).
+//! This eliminates the retrigger click that occurs when a slot is reused
+//! while its ADSR release is still actively decaying.
+//!
 //! REQUIRES HARDWARE: a MIDI input device AND an audio output device. Connect
 //! a MicroFreak and run `cargo run --example microfreak_synth` (Ctrl+C to stop).
 //!
@@ -36,13 +41,9 @@ use auxide_midi::midi_bridge::build_rompler_graph;
 use auxide_midi::{MidiEvent, MidiInputHandler};
 
 const VOICES: usize = 8;
-
-/// Timestamped log line: `[T+<ms>ms] <formatted-args>`.
-macro_rules! log {
-    ($start:expr, $($arg:tt)*) => {
-        println!("[T+{}ms] {}", $start.elapsed().as_millis(), format_args!($($arg)*));
-    };
-}
+/// Hold a slot busy for this long after note-off so the ADSR release fully
+/// decays before the slot can be re-used (prevents retrigger click).
+const RELEASE_GUARD_MS: u64 = 250;
 
 /// A one-second 440 Hz sine used as the ROMpler sample (stand-in for a
 /// recorded timbre; swap for a loaded .wav to taste).
@@ -62,6 +63,20 @@ fn note_to_freq(n: u8) -> f32 {
 /// Map a 0..127 CC value to a log-spaced cutoff in [20 Hz, 20 kHz].
 fn cc_to_cutoff(v: u8) -> f32 {
     20.0 * f32::powf(1000.0, v as f32 / 127.0)
+}
+
+/// Per-voice tracking: what note (if any) is assigned, and when the release
+/// window ends so the slot can be safely re-used.
+struct VoiceSlot {
+    note: Option<u8>,
+    release_until: Option<Instant>,
+}
+
+/// Timestamped log line: `[T+<ms>ms] <formatted-args>`.
+macro_rules! log {
+    ($start:expr, $($arg:tt)*) => {
+        println!("[T+{}ms] {}", $start.elapsed().as_millis(), format_args!($($arg)*));
+    };
 }
 
 fn main() -> Result<()> {
@@ -110,12 +125,16 @@ fn main() -> Result<()> {
     handler.connect_device(idx)?;
 
     // ------------------------------------------------------------------
-    // Voice allocation: note -> slot. Each slot owns (osc, env) node ids.
-    // Voices mid-release are not reused (avoids retrigger click): if all
-    // 8 slots are occupied, new notes are dropped instead of stealing.
-    // `bend` is the global pitch-bend ratio, applied to active + new voices.
+    // Voice allocation: each slot tracks its MIDI note and when the
+    // ADSR release window ends.  A slot may only be re-used once both
+    // conditions hold: note is None AND release_until has elapsed.
+    // This eliminates the retrigger click that occurs when a slot is
+    // reused while its ADSR release is still actively decaying.
     // ------------------------------------------------------------------
-    let mut voice_note: [Option<u8>; VOICES] = [None; VOICES];
+    let mut voices: [VoiceSlot; VOICES] = std::array::from_fn(|_| VoiceSlot {
+        note: None,
+        release_until: None,
+    });
     let mut bend: f32 = 1.0;
 
     let running = Arc::new(AtomicBool::new(true));
@@ -141,12 +160,16 @@ fn main() -> Result<()> {
         if let Some(ev) = handler.try_recv() {
             match ev {
                 MidiEvent::NoteOn(n, _v) => {
-                    let slot = match voice_note.iter().position(|s| s.is_none()) {
+                    let now = Instant::now();
+                    let slot = voices.iter().position(|v| {
+                        v.note.is_none() && v.release_until.map_or(true, |t| now >= t)
+                    });
+                    let slot = match slot {
                         Some(i) => i,
                         None => {
                             log!(
                                 start,
-                                "DROPPED note-on {} (all {} voices in use)",
+                                "DROPPED note-on {} (all {} voices in use or releasing)",
                                 n,
                                 VOICES
                             );
@@ -172,7 +195,8 @@ fn main() -> Result<()> {
                             on: true,
                         })
                         .expect("control send");
-                    voice_note[slot] = Some(n);
+                    voices[slot].note = Some(n);
+                    voices[slot].release_until = None;
                     log!(
                         start,
                         "note-on  {} slot {} freq {:.1} Hz gate-on osc+env",
@@ -182,7 +206,7 @@ fn main() -> Result<()> {
                     );
                 }
                 MidiEvent::NoteOff(n, _) => {
-                    if let Some(slot) = voice_note.iter().position(|s| *s == Some(n)) {
+                    if let Some(slot) = voices.iter().position(|v| v.note == Some(n)) {
                         let (_osc, env) = voice_pairs[slot];
                         control
                             .send(ControlMsg::TriggerGate {
@@ -190,12 +214,15 @@ fn main() -> Result<()> {
                                 on: false,
                             })
                             .expect("control send");
-                        voice_note[slot] = None;
+                        voices[slot].note = None;
+                        voices[slot].release_until =
+                            Some(Instant::now() + Duration::from_millis(RELEASE_GUARD_MS));
                         log!(
                             start,
-                            "note-off {} slot {} gate-off env (release 200 ms)",
+                            "note-off {} slot {} gate-off env (release {} ms)",
                             n,
-                            slot
+                            slot,
+                            RELEASE_GUARD_MS
                         );
                     }
                 }
@@ -224,7 +251,7 @@ fn main() -> Result<()> {
                     let semis = (b as f32 - 8192.0) / 8192.0 * 2.0;
                     bend = f32::powf(2.0, semis / 12.0);
                     for slot in 0..VOICES {
-                        if let Some(n) = voice_note[slot] {
+                        if let Some(n) = voices[slot].note {
                             let (osc, _env) = voice_pairs[slot];
                             control
                                 .send(ControlMsg::SetFrequency {
