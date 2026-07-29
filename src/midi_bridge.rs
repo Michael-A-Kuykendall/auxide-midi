@@ -298,7 +298,7 @@ pub fn build_rompler_graph(
             true, // loop mode — sustain while gate is held
         ));
         let env = graph.add_external_node(AdsrEnvelope {
-            attack_ms: 10.0,
+            attack_ms: 50.0,
             decay_ms: 50.0,
             sustain_level: 0.7,
             release_ms: 200.0,
@@ -409,7 +409,7 @@ mod tests {
         // and process_block produces rising level.
         let mut graph = Graph::new();
         let env = graph.add_external_node(AdsrEnvelope {
-            attack_ms: 10.0,
+            attack_ms: 50.0,
             decay_ms: 50.0,
             sustain_level: 0.7,
             release_ms: 200.0,
@@ -436,7 +436,7 @@ mod tests {
             .unwrap();
         let mut out = vec![0.0; 64];
         handle.process_block(&mut out).unwrap();
-        // After 1 block (~1.45 ms of 10 ms attack), the envelope should
+        // After 1 block (~1.45 ms of 50 ms attack), the envelope should
         // have risen noticeably from zero.
         let first = out[0];
         let last = out[out.len() - 1];
