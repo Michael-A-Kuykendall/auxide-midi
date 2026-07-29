@@ -11,6 +11,13 @@
 //! - Pitch bend wheel -> +/- 2 semitones
 //! - Note on/off -> polyphonic voice allocation (8 voices)
 //!
+//! Every MIDI event and every control message sent to the audio thread is
+//! timestamped so you can correlate what you hear with what the code did
+//! at that exact millisecond. Audio-thread health (callback count, xruns,
+//! recovery flag, peak level, latency) is printed every 500 ms from the
+//! main loop so you can see whether a crackle coincides with an xrun or
+//! an overflow.
+//!
 //! REQUIRES HARDWARE: a MIDI input device AND an audio output device. Connect
 //! a MicroFreak and run `cargo run --example microfreak_synth` (Ctrl+C to stop).
 //!
@@ -19,6 +26,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use auxide::control::{ControlMsg, PARAM_RESONANCE};
@@ -28,6 +36,13 @@ use auxide_midi::midi_bridge::build_rompler_graph;
 use auxide_midi::{MidiEvent, MidiInputHandler};
 
 const VOICES: usize = 8;
+
+/// Timestamped log line: `[T+<ms>ms] <formatted-args>`.
+macro_rules! log {
+    ($start:expr, $($arg:tt)*) => {
+        println!("[T+{}ms] {}", $start.elapsed().as_millis(), format_args!($($arg)*));
+    };
+}
 
 /// A one-second 440 Hz sine used as the ROMpler sample (stand-in for a
 /// recorded timbre; swap for a loaded .wav to taste).
@@ -52,6 +67,7 @@ fn cc_to_cutoff(v: u8) -> f32 {
 fn main() -> Result<()> {
     let sr = 44100.0;
     let sample = make_sample(sr);
+    let start = Instant::now();
 
     // ------------------------------------------------------------------
     // Build the polyphonic ROMpler graph and a RuntimeHandle we can stream.
@@ -66,7 +82,12 @@ fn main() -> Result<()> {
     // ------------------------------------------------------------------
     let controller = StreamController::play_handle(handle)?;
     controller.start()?;
-    println!("Playing through the host sound device (Ctrl+C to stop).");
+    let diag_interval = Duration::from_millis(500);
+    let mut last_diag = start;
+    log!(
+        start,
+        "playing through the host sound device (Ctrl+C to stop)"
+    );
 
     // ------------------------------------------------------------------
     // Open the MIDI input device (prefer a MicroFreak / Arturia).
@@ -84,12 +105,14 @@ fn main() -> Result<()> {
             l.contains("microfreak") || l.contains("ultrafreak") || l.contains("arturia")
         })
         .unwrap_or(0);
-    println!("MIDI from {}:", devices[idx]);
+    log!(start, "MIDI from {}", devices[idx]);
     let mut handler = MidiInputHandler::new();
     handler.connect_device(idx)?;
 
     // ------------------------------------------------------------------
     // Voice allocation: note -> slot. Each slot owns (osc, env) node ids.
+    // Voices mid-release are not reused (avoids retrigger click): if all
+    // 8 slots are occupied, new notes are dropped instead of stealing.
     // `bend` is the global pitch-bend ratio, applied to active + new voices.
     // ------------------------------------------------------------------
     let mut voice_note: [Option<u8>; VOICES] = [None; VOICES];
@@ -100,12 +123,35 @@ fn main() -> Result<()> {
     ctrlc::set_handler(move || r.store(false, Ordering::Relaxed))?;
 
     while running.load(Ordering::Relaxed) {
+        // Periodic audio-thread health snapshot (main thread, non-RT).
+        if Instant::now() >= last_diag + diag_interval {
+            last_diag = Instant::now();
+            let snap = controller.diagnostics();
+            log!(
+                start,
+                "AUDIO cb={} overflow={} recovery={} peak={:.4} latency={:?}",
+                snap.callback_count,
+                snap.overflow_count,
+                controller.recovery_needed(),
+                snap.peak,
+                snap.latency,
+            );
+        }
+
         if let Some(ev) = handler.try_recv() {
             match ev {
                 MidiEvent::NoteOn(n, _v) => {
                     let slot = match voice_note.iter().position(|s| s.is_none()) {
                         Some(i) => i,
-                        None => continue, // all 8 voices in use; drop this note
+                        None => {
+                            log!(
+                                start,
+                                "DROPPED note-on {} (all {} voices in use)",
+                                n,
+                                VOICES
+                            );
+                            continue;
+                        }
                     };
                     let (osc, env) = voice_pairs[slot];
                     control
@@ -127,7 +173,13 @@ fn main() -> Result<()> {
                         })
                         .expect("control send");
                     voice_note[slot] = Some(n);
-                    println!("NoteOn {} -> voice {}", n, slot);
+                    log!(
+                        start,
+                        "note-on  {} slot {} freq {:.1} Hz gate-on osc+env",
+                        n,
+                        slot,
+                        note_to_freq(n) * bend,
+                    );
                 }
                 MidiEvent::NoteOff(n, _) => {
                     if let Some(slot) = voice_note.iter().position(|s| *s == Some(n)) {
@@ -139,7 +191,12 @@ fn main() -> Result<()> {
                             })
                             .expect("control send");
                         voice_note[slot] = None;
-                        println!("NoteOff {} -> voice {}", n, slot);
+                        log!(
+                            start,
+                            "note-off {} slot {} gate-off env (release 200 ms)",
+                            n,
+                            slot
+                        );
                     }
                 }
                 MidiEvent::ControlChange(74, v) => {
@@ -150,7 +207,7 @@ fn main() -> Result<()> {
                             hz,
                         })
                         .expect("control send");
-                    println!("CC74 cutoff -> {:.1} Hz", hz);
+                    log!(start, "CC74  cutoff -> {:.1} Hz", hz);
                 }
                 MidiEvent::ControlChange(71, v) => {
                     let res = v as f32 / 127.0;
@@ -161,10 +218,9 @@ fn main() -> Result<()> {
                             value: res,
                         })
                         .expect("control send");
-                    println!("CC71 resonance -> {:.2}", res);
+                    log!(start, "CC71  resonance -> {:.2}", res);
                 }
                 MidiEvent::PitchBend(b) => {
-                    // +/- 2 semitones across the 0..16383 wheel (center 8192).
                     let semis = (b as f32 - 8192.0) / 8192.0 * 2.0;
                     bend = f32::powf(2.0, semis / 12.0);
                     for slot in 0..VOICES {
@@ -178,15 +234,20 @@ fn main() -> Result<()> {
                                 .expect("control send");
                         }
                     }
-                    println!("PitchBend -> {:.2} semitones", semis);
+                    log!(
+                        start,
+                        "pitch-bend -> {:.2} semitones  bend {:.3}x",
+                        semis,
+                        bend
+                    );
                 }
                 _ => {}
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(1));
     }
 
     controller.stop();
-    println!("Stopped.");
+    log!(start, "stopped.");
     Ok(())
 }
