@@ -103,11 +103,10 @@ fn main() -> Result<()> {
         if let Some(ev) = handler.try_recv() {
             match ev {
                 MidiEvent::NoteOn(n, _v) => {
-                    let slot = voice_note
-                        .iter()
-                        .position(|s| s.is_none())
-                        .or_else(|| voice_note.iter().position(|s| s.is_some()))
-                        .unwrap_or(0);
+                    let slot = match voice_note.iter().position(|s| s.is_none()) {
+                        Some(i) => i,
+                        None => continue, // all 8 voices in use; drop this note
+                    };
                     let (osc, env) = voice_pairs[slot];
                     control
                         .send(ControlMsg::SetFrequency {
