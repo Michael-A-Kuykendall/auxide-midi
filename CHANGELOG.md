@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.2] - 2026-07-29
+- **Example diagnostics**: Added glitch_count logging to microfreak_synth periodic AUDIO output
+- **Ecosystem docs**: Updated AGENTS.md with full 7-crate Auxide ecosystem overview
+
 ## [0.1.1] - 2026-01-07
 - **Voice allocator improvements**: u64 age counter prevents wraparound in extreme long-running scenarios
 - **Documentation**: Complete API documentation for all public types and methods

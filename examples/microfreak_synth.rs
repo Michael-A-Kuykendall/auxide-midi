@@ -148,9 +148,10 @@ fn main() -> Result<()> {
             let snap = controller.diagnostics();
             log!(
                 start,
-                "AUDIO cb={} overflow={} recovery={} peak={:.4} latency={:?}",
+                "AUDIO cb={} overflow={} glitch={} recovery={} peak={:.4} latency={:?}",
                 snap.callback_count,
                 snap.overflow_count,
+                snap.glitch_count,
                 controller.recovery_needed(),
                 snap.peak,
                 snap.latency,
