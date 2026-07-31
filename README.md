@@ -41,11 +41,9 @@ auxide-dsp = "0.2"
 auxide-midi = "0.2"
 ```
 
-## Example
+## Examples
 
-Build a polyphonic ROMpler with the real `Synth` facade — every note is
-routed through the auxide kernel's runtime control plane (no "all notes
-play at 440 Hz" overclaim):
+### Polyphonic ROMpler with Synth Facade
 
 ```rust
 use std::sync::Arc;
@@ -67,15 +65,117 @@ assert!(out.iter().any(|&s| s.abs() > 1e-3));
 synth.note_off(69);
 ```
 
-**True capability:** polyphonic voices with per-note pitch, ADSR envelopes,
-and an SVF filter; real-time CC mapping (cutoff/resonance) and
-pitch-bend through the lock-free control queue. A MIDI device is
-required for input, but the synth itself renders with no device. For live
-CPAL playback, wrap the `RuntimeHandle` with
-`auxide_io::StreamController::play_handle`.
+Each note routes through `RuntimeCore`'s lock-free control queue — `SetFrequency` + `TriggerGate` on per-voice oscillator/envelope pairs.
 
-See `examples/` for complete, building demos
-(`cargo run --example poly_synth`, `cargo run --example note_echo`).
+### MidiInputHandler — Receiving MIDI Events
+
+<details>
+<summary>Expand</summary>
+
+```rust
+use auxide_midi::MidiInputHandler;
+
+let mut handler = MidiInputHandler::new();
+// List available devices
+for (i, name) in handler.list_devices().unwrap().iter().enumerate() {
+    println!("{}: {}", i, name);
+}
+// Connect to first device
+handler.connect_device(0).unwrap();
+// Poll for events in real-time loop
+while running {
+    if let Some(event) = handler.try_recv() {
+        match event {
+            MidiEvent::NoteOn(note, vel) => { /* route */ }
+            MidiEvent::NoteOff(note, _) => { /* release */ }
+            MidiEvent::ControlChange(cc, value) => { /* map */ }
+            MidiEvent::PitchBend(bend) => { /* 14-bit, center=8192 */ }
+            _ => {}
+        }
+    }
+}
+```
+</details>
+
+### VoiceAllocator — Polyphonic Voice Management
+
+<details>
+<summary>Expand</summary>
+
+```rust
+use auxide_midi::voice_allocator::VoiceAllocator;
+
+let mut alloc = VoiceAllocator::new(); // 8 voices max
+if let Some(id) = alloc.allocate_voice(60) {
+    // id.0 = slot index (0..7), note 60 = middle C
+    activate_voice(id, 60);
+}
+alloc.release_voice(60); // frees the slot
+// When all slots full, steals oldest voice (LRU)
+```
+</details>
+
+### CC Mapping — Control Parameters
+
+<details>
+<summary>Expand</summary>
+
+```rust
+use auxide_midi::cc_mapping::{CCMap, ParamTarget};
+
+let mut map = CCMap::new();
+// Default: CC1 → FilterCutoff, CC74 → FilterResonance
+// Custom mapping:
+map.set_mapping(7, ParamTarget::AttackTime);
+map.set_mapping(64, ParamTarget::ReleaseTime);
+
+if let Some((target, value)) = map.map_cc(7, 100) {
+    // target = AttackTime, value ≈ 0.787 (100/127)
+}
+```
+</details>
+
+### MidiToAudioBridge — Full Integrated Pipeline
+
+The `MidiToAudioBridge` connects a MIDI device to a kernel runtime, enabling live polyphonic playback with automatic note routing, CC-driven filter control, and parameter smoothing.
+
+See [`examples/microfreak_synth.rs`](examples/microfreak_synth.rs) for the reference live implementation — a fully-featured hardware ROMpler built with:
+
+- `MidiInputHandler` for USB MIDI from an Arturia MicroFreak
+- `build_rompler_graph` for the per-voice Sampler → Multiply ← Envelope topology
+- `StreamController::play_handle` for live CPAL audio output
+- Per-slot release tracking (250 ms guard against retrigger click)
+- CC74/CC71 → filter cutoff/resonance
+- Full pitch-bend retuning (±2 semitones, per-voice)
+- Periodic `diagnostics()` logging with glitch detection
+
+Run it: `cargo run --release --example microfreak_synth` (requires a MIDI controller).
+
+### Transport MIDI Clock
+
+```rust
+use auxide_midi::midi_input::Transport;
+
+let mut transport = Transport::new();
+transport.start();
+// Feed MIDI Clock messages (24 PPQ)
+transport.tick();
+println!("beat={}, bar={}, phase={}", transport.beat(), transport.bar(), transport.ppq_phase());
+```
+
+### Parameter Smoothing
+
+Avoid clicks from abrupt parameter changes:
+
+```rust
+use auxide_midi::ParamSmoother;
+
+let mut smooth = ParamSmoother::new(); // 10 ms time constant @ 44.1k
+smooth.set_target(0.5);
+for _ in 0..441 {
+    let v = smooth.next_sample(); // approaches 0.5 over ~10 ms
+}
+```
 
 ## Features
 
