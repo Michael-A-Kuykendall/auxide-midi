@@ -1,3 +1,6 @@
 
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads
+
+# Mark coverage reports as documentation (not HTML source)
+tarpaulin/tarpaulin-report.html linguist-documentation
